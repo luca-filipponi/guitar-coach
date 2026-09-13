@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/luca-filipponi/guitar-coach/internal/api"
+	"github.com/luca-filipponi/guitar-coach/internal/model"
 )
 
 func (sh *Shell) newAddCmd() *cobra.Command {
@@ -37,15 +38,29 @@ func (sh *Shell) newAddCmd() *cobra.Command {
 }
 
 func (sh *Shell) newListCmd() *cobra.Command {
-	return &cobra.Command{
+	var topic string
+	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "list exercises",
+		Short: "list exercises (optionally filter by topic)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			exercises := sh.api.ListExercises()
 			if len(exercises) == 0 {
 				fmt.Println(`no exercises yet — add some: guitar-coach add "Warmup"`)
 				return nil
+			}
+			if topic != "" {
+				filtered := make([]model.Exercise, 0, len(exercises))
+				for _, ex := range exercises {
+					if ex.Topic == topic {
+						filtered = append(filtered, ex)
+					}
+				}
+				exercises = filtered
+				if len(exercises) == 0 {
+					fmt.Printf("no exercises with topic %q\n", topic)
+					return nil
+				}
 			}
 			fmt.Println("exercises:")
 			for _, ex := range exercises {
@@ -59,6 +74,9 @@ func (sh *Shell) newListCmd() *cobra.Command {
 		},
 		ValidArgsFunction: sh.noCompletion,
 	}
+	cmd.Flags().StringVar(&topic, "topic", "", "only exercises with this topic")
+	cmd.RegisterFlagCompletionFunc("topic", sh.completeTopics)
+	return cmd
 }
 
 func (sh *Shell) newRemoveCmd() *cobra.Command {

@@ -12,7 +12,8 @@ import (
 )
 
 func (sh *Shell) newHistoryCmd() *cobra.Command {
-	return &cobra.Command{
+	var topic string
+	cmd := &cobra.Command{
 		Use:   "history",
 		Short: "list past sessions",
 		Args:  cobra.NoArgs,
@@ -22,22 +23,55 @@ func (sh *Shell) newHistoryCmd() *cobra.Command {
 				fmt.Println("no sessions yet — run: guitar-coach start")
 				return nil
 			}
-			fmt.Println("sessions:")
+			type line struct {
+				id, when string
+				rounds   int
+				sets     int
+				dur      string
+			}
+			var lines []line
 			for i := len(sessions) - 1; i >= 0; i-- {
 				s := sessions[i]
-				start := util.ParseTime(s.StartedAt)
-				fmt.Printf("  %s  %s  rounds=%d  exercises=%d  %s\n",
-					s.ID,
-					start.Local().Format("Jan _2 15:04"),
-					model.MaxRound(s.Entries),
-					len(s.Entries),
-					util.FormatDuration(time.Duration(s.Config.DurationSec)*time.Second),
-				)
+				entries := s.Entries
+				if topic != "" {
+					var matched []model.Entry
+					for _, e := range entries {
+						if ex, err := sh.api.GetExercise(e.ExerciseID); err == nil && ex.Topic == topic {
+							matched = append(matched, e)
+						}
+					}
+					if len(matched) == 0 {
+						continue
+					}
+					entries = matched
+				}
+				lines = append(lines, line{
+					id:     s.ID,
+					when:   util.ParseTime(s.StartedAt).Local().Format("Jan _2 15:04"),
+					rounds: model.MaxRound(entries),
+					sets:   len(entries),
+					dur:    util.FormatDuration(time.Duration(s.Config.DurationSec) * time.Second),
+				})
+			}
+			if len(lines) == 0 {
+				if topic != "" {
+					fmt.Printf("no sessions for topic %q\n", topic)
+				} else {
+					fmt.Println("no sessions yet — run: guitar-coach start")
+				}
+				return nil
+			}
+			fmt.Println("sessions:")
+			for _, l := range lines {
+				fmt.Printf("  %s  %s  rounds=%d  exercises=%d  %s\n", l.id, l.when, l.rounds, l.sets, l.dur)
 			}
 			return nil
 		},
 		ValidArgsFunction: sh.noCompletion,
 	}
+	cmd.Flags().StringVar(&topic, "topic", "", "only sessions containing exercises with this topic")
+	cmd.RegisterFlagCompletionFunc("topic", sh.completeTopics)
+	return cmd
 }
 
 func (sh *Shell) newShowCmd() *cobra.Command {

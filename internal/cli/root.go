@@ -31,8 +31,9 @@ func New(st *store.Store) *Shell {
 
 func (sh *Shell) Root() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "guitar-coach",
-		Short: "Guitar practice session tracker",
+		Use:     "guitar-coach",
+		Short:   "Guitar practice session tracker",
+		Version: version,
 		Long: `guitar-coach is a CLI for tracking guitar practice sessions.
 
 It helps you run timed practice sessions, records start/end BPM and notes
@@ -55,6 +56,7 @@ the GUITAR_COACH_DIR environment variable).`,
 	root.AddCommand(sh.newHistoryCmd())
 	root.AddCommand(sh.newShowCmd())
 	root.AddCommand(sh.newServeCmd())
+	root.AddCommand(versionCmd())
 
 	return root
 }

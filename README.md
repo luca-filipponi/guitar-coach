@@ -51,6 +51,7 @@ guitar-coach serve        # web UI + charts at http://localhost:8080
 | `history` / `show <id>` | review past sessions |
 | `seed [--weeks N]` | generate fake history for trying the UI |
 | `serve [--port 8080]` | start the local web UI and REST API |
+| `version` | print the installed version |
 | `completion <shell>` | shell completion script |
 
 ## Data
