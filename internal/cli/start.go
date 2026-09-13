@@ -16,12 +16,13 @@ import (
 
 func (sh *Shell) newStartCmd() *cobra.Command {
 	var (
-		numEx    int
-		durStr   string
-		restStr  string
-		breakStr string
-		pick     string
-		sel      bool
+		numEx      int
+		durStr     string
+		restStr    string
+		breakStr   string
+		pick       string
+		sel        bool
+		freshRound bool
 	)
 	cmd := &cobra.Command{
 		Use:   "start",
@@ -55,7 +56,7 @@ func (sh *Shell) newStartCmd() *cobra.Command {
 				return errors.New(`no exercises yet — add some: guitar-coach add "Warmup"`)
 			}
 
-			order, err := sh.chooseExercises(pool, cfg.ExercisesPerRound, pick, sel)
+			order, err := sh.chooseExercises(pool, cfg.ExercisesPerRound, pick, sel, freshRound)
 			if err != nil {
 				return err
 			}
@@ -69,11 +70,12 @@ func (sh *Shell) newStartCmd() *cobra.Command {
 	cmd.Flags().StringVar(&breakStr, "break", "5m", "break between rounds")
 	cmd.Flags().StringVar(&pick, "pick", "", "comma-separated exercises to use")
 	cmd.Flags().BoolVar(&sel, "select", false, "choose exercises interactively")
+	cmd.Flags().BoolVar(&freshRound, "new", false, "fresh random rotation (skip the keep-previous prompt)")
 	_ = cmd.RegisterFlagCompletionFunc("pick", sh.completeExerciseNames)
 	return cmd
 }
 
-func (sh *Shell) chooseExercises(pool []model.Exercise, n int, pick string, sel bool) ([]model.Exercise, error) {
+func (sh *Shell) chooseExercises(pool []model.Exercise, n int, pick string, sel bool, freshRound bool) ([]model.Exercise, error) {
 	if pick != "" {
 		var chosen []model.Exercise
 		for _, token := range strings.Split(pick, ",") {
@@ -95,7 +97,34 @@ func (sh *Shell) chooseExercises(pool []model.Exercise, n int, pick string, sel 
 	if sel {
 		return sh.selectExercises(pool, n)
 	}
+	if !freshRound {
+		if last := sh.lastRotation(); len(last) > 0 {
+			line, aborted := sh.readLineSig(fmt.Sprintf("keep previous rotation (%d exercises)? [Y/n]: ", len(last)))
+			if !aborted && !strings.EqualFold(line, "n") && !strings.EqualFold(line, "no") {
+				fmt.Printf("using previous rotation\n")
+				return last, nil
+			}
+		}
+	}
 	return api.BuildPlan(pool, n), nil
+}
+
+// lastRotation returns the exercises ordered in the most recent session that
+// still exist, or nil when there is no prior rotation to reuse.
+func (sh *Shell) lastRotation() []model.Exercise {
+	sessions := sh.api.ListSessions()
+	for i := len(sessions) - 1; i >= 0; i-- {
+		var exes []model.Exercise
+		for _, id := range sessions[i].Order {
+			if ex, err := sh.api.GetExercise(id); err == nil {
+				exes = append(exes, ex)
+			}
+		}
+		if len(exes) > 0 {
+			return exes
+		}
+	}
+	return nil
 }
 
 func (sh *Shell) selectExercises(pool []model.Exercise, n int) ([]model.Exercise, error) {
@@ -240,6 +269,14 @@ func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
 	total := util.ParseTime(sess.EndedAt).Sub(util.ParseTime(sess.StartedAt))
 	fmt.Printf("\nsession %s finished -- %d rounds, %d exercises done, %s total\n",
 		sess.ID, model.MaxRound(sess.Entries), len(sess.Entries), util.FormatDuration(total))
+
+	line, aborted := sh.readLineSig("open this session in the browser for review? [y/N]: ")
+	if !aborted && (strings.EqualFold(line, "y") || strings.EqualFold(line, "yes")) {
+		fmt.Println("opening web UI\u2026")
+		if err := sh.openSessionInBrowser(sess.ID); err != nil {
+			fmt.Println("warning: could not open the web UI:", err)
+		}
+	}
 	return nil
 }
 

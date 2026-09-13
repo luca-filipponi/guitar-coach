@@ -47,7 +47,7 @@ guitar-coach serve        # web UI + charts at http://localhost:8080
 | `list` | list exercises |
 | `remove <exercise>` | remove an exercise |
 | `topic <exercise> [topic]` / `--clear` | show, set or clear a topic |
-| `start [--exercises N] [--duration 5m] [--rest 1m] [--break 5m] [--pick a,b] [--select]` | run a practice session |
+| `start [--exercises N] [--duration 5m] [--rest 1m] [--break 5m] [--pick a,b] [--select] [--new]` | run a practice session (asks to reuse the previous rotation unless `--new` is given) |
 | `history` / `show <id>` | review past sessions |
 | `seed [--weeks N]` | generate fake history for trying the UI |
 | `serve [--port 8080]` | start the local web UI and REST API |

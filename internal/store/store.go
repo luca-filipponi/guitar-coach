@@ -43,6 +43,10 @@ func Open(dir string) (*Store, error) {
 	return s, nil
 }
 
+func (s *Store) Dir() string {
+	return filepath.Dir(s.exercisesPath)
+}
+
 func (s *Store) lock() (unlock func()) {
 	s.mu.Lock()
 	return s.mu.Unlock
