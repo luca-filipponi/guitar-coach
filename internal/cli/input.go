@@ -1,50 +1,29 @@
 package cli
 
 import (
-	"bufio"
 	"fmt"
-	"os"
 	"strconv"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/luca-filipponi/guitar-coach/internal/util"
 )
 
-type input struct {
-	lines chan string
-}
-
-func newInput() *input {
-	it := &input{lines: make(chan string, 16)}
-	sc := bufio.NewScanner(os.Stdin)
-	buf := make([]byte, 0, 65536)
-	sc.Buffer(buf, 1024*1024)
-	go func() {
-		for sc.Scan() {
-			it.lines <- sc.Text()
-		}
-	}()
-	return it
-}
-
-func (sh *Shell) readLineSig(label string) (string, bool) {
-	fmt.Print(label)
-	select {
-	case line := <-sh.in.lines:
-		return strings.TrimSpace(line), false
-	case <-sh.sig:
-		return "", true
+// promptBPM asks for a BPM value, pre-filling the suggested value so the
+// user can accept it with Enter or nudge it with the up/down arrows. An
+// emptied answer also accepts the suggestion. opts can carry the live
+// rest-clock status line.
+func (sh *Shell) promptBPM(label string, suggest int, opts ...promptOpts) (int, bool) {
+	opt := promptOpts{}
+	if len(opts) > 0 {
+		opt = opts[0]
 	}
-}
-
-func (sh *Shell) promptBPM(label string, suggest int) (int, bool) {
-	hint := ""
 	if suggest > 0 {
-		hint = fmt.Sprintf(" [suggest: %d]", suggest)
+		opt.initial = strconv.Itoa(suggest)
 	}
+	opt.numeric = true
 	for {
-		line, aborted := sh.readLineSig(fmt.Sprintf("%s%s: ", label, hint))
+		line, aborted := sh.readPrompt(label+": ", opt)
 		if aborted {
 			return suggest, true
 		}
@@ -69,7 +48,7 @@ func (sh *Shell) countdown(dur time.Duration, label string) bool {
 		remaining := time.Until(end)
 		if remaining <= 0 {
 			fmt.Printf("\r\033[K  %s -- done\n", label)
-			bell()
+			sh.playAlarm()
 			return false
 		}
 		fmt.Printf("\r\033[K  %s -- %s remaining (Ctrl-C to skip)", label, util.FormatDuration(remaining))
@@ -77,32 +56,69 @@ func (sh *Shell) countdown(dur time.Duration, label string) bool {
 		case <-ticker.C:
 		case <-sh.sig:
 			fmt.Printf("\r\033[K  %s -- skipped\n", label)
-			bell()
+			sh.playAlarm()
 			return true
 		}
 	}
 }
 
-// restWindow announces the rest and returns a channel that fires once the rest
-// has elapsed (or Ctrl-C skips it). It runs in the background so the BPM/notes
-// prompts can be answered during the rest without blocking the timer.
-func (sh *Shell) restWindow(label string, dur time.Duration) <-chan struct{} {
-	fmt.Printf("\n  Rest %s -- record end BPM and notes for %s (Ctrl-C to skip rest)\n",
-		util.FormatDuration(dur), label)
-	done := make(chan struct{}, 1)
+// restClock drives the rest timer. It keeps the end time so the prompts can
+// show a live "rest X left" line, and a done channel that fires when the rest
+// elapses (or the user skips it). done is closed (never sent to) so waiters
+// never lose the wakeup.
+type restClock struct {
+	end   time.Time
+	label string
+	done  chan struct{}
+	once  sync.Once
+}
+
+func (sh *Shell) startRest(label string, dur time.Duration) *restClock {
+	rc := &restClock{end: time.Now().Add(dur), label: label, done: make(chan struct{})}
 	go func() {
 		select {
 		case <-time.After(dur):
-			bell()
-		case <-sh.sig:
+			sh.playAlarm()
+			rc.signal()
+		case <-rc.done:
 		}
-		done <- struct{}{}
 	}()
-	return done
+	return rc
 }
 
-func bell() {
-	fmt.Print("\a\a\a")
+// signal marks the rest as done (from the timer or a skip); the first call
+// closes done, waking every waiter.
+func (rc *restClock) signal() {
+	rc.once.Do(func() { close(rc.done) })
+}
+
+// statusText is fed to the prompt editor's status line so the user sees the
+// rest time ticking while they record BPM and notes.
+func (rc *restClock) statusText() string {
+	rem := time.Until(rc.end)
+	if rem <= 0 {
+		return fmt.Sprintf("rest over for %s", rc.label)
+	}
+	return fmt.Sprintf("%s: rest %s left", rc.label, util.FormatDuration(rem))
+}
+
+// waitRest blocks until the rest elapses (or Ctrl-C skips it), redrawing a
+// live countdown on a single line.
+func (sh *Shell) waitRest(rc *restClock) {
+	for {
+		select {
+		case <-rc.done:
+			fmt.Print("\r\033[K")
+			return
+		case <-time.After(time.Second):
+			fmt.Printf("\r\033[K  %s (Ctrl-C to skip)", rc.statusText())
+			select {
+			case <-sh.sig:
+				rc.signal()
+			default:
+			}
+		}
+	}
 }
 
 func (sh *Shell) lastEndBPM(exID string) int {

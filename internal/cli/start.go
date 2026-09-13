@@ -20,6 +20,11 @@ func (sh *Shell) newStartCmd() *cobra.Command {
 		durStr     string
 		restStr    string
 		breakStr   string
+		warmupStr  string
+		alarmSound string
+		alarmVol   float64
+		alarmCount int
+		alarmGap   string
 		pick       string
 		sel        bool
 		freshRound bool
@@ -40,6 +45,22 @@ func (sh *Shell) newStartCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("invalid --break %q", breakStr)
 			}
+			warmupD, err := util.ParseDuration(warmupStr)
+			if err != nil {
+				return fmt.Errorf("invalid --warmup %q", warmupStr)
+			}
+			gapD, err := util.ParseDuration(alarmGap)
+			if err != nil {
+				return fmt.Errorf("invalid --alarm-gap %q", alarmGap)
+			}
+			if alarmCount < 1 {
+				return errors.New("--alarm-count must be at least 1")
+			}
+			sh.warmup = warmupD
+			sh.alarmSound = alarmSound
+			sh.alarmVolume = alarmVol
+			sh.alarmCount = alarmCount
+			sh.alarmGap = gapD
 			if numEx < 1 {
 				return errors.New("--exercises must be at least 1")
 			}
@@ -68,6 +89,11 @@ func (sh *Shell) newStartCmd() *cobra.Command {
 	cmd.Flags().StringVar(&durStr, "duration", "5m", "time per exercise")
 	cmd.Flags().StringVar(&restStr, "rest", "1m", "rest between exercises")
 	cmd.Flags().StringVar(&breakStr, "break", "5m", "break between rounds")
+	cmd.Flags().StringVar(&warmupStr, "warmup", "5m", "warm-up time before the first set")
+	cmd.Flags().StringVar(&alarmSound, "alarm-sound", "/System/Library/Sounds/Ping.aiff", "alert sound file")
+	cmd.Flags().Float64Var(&alarmVol, "alarm-volume", 2.5, "alert volume (afplay -v), 1.0 is the default loudness")
+	cmd.Flags().IntVar(&alarmCount, "alarm-count", 3, "alert beeps per alarm")
+	cmd.Flags().StringVar(&alarmGap, "alarm-gap", "220ms", "pause between alert beeps")
 	cmd.Flags().StringVar(&pick, "pick", "", "comma-separated exercises to use")
 	cmd.Flags().BoolVar(&sel, "select", false, "choose exercises interactively")
 	cmd.Flags().BoolVar(&freshRound, "new", false, "fresh random rotation (skip the keep-previous prompt)")
@@ -189,9 +215,12 @@ func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
 		fmt.Printf("  %d. %s -- %s, then %s rest\n",
 			i+1, label, util.FormatDuration(durationOf(cfg.DurationSec)), util.FormatDuration(durationOf(cfg.RestSec)))
 	}
-	fmt.Printf("after %d exercises: order is swapped, and you're asked to start another round (then %s break)\n",
+	fmt.Printf("after %d exercises: the order is scrambled for the next round (then %s break)\n",
 		len(order), util.FormatDuration(durationOf(cfg.BreakSec)))
 	fmt.Println("\nenter start BPM before each exercise. After the set, the rest timer runs while you record end BPM and notes. Ctrl-C skips a timer or aborts a prompt.")
+
+	fmt.Println("\nwarm up before the first set:")
+	sh.countdown(sh.warmup, "Warmup -- open the hands, play lightly")
 
 	round := 1
 	cur := order
@@ -218,17 +247,20 @@ func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
 			sh.countdown(durationOf(cfg.DurationSec), "Doing: "+label)
 			finishedAt := util.NowRFC()
 
-			restDone := sh.restWindow(label, durationOf(cfg.RestSec))
-			endBPM, aborted := sh.promptBPM("end BPM", startBPM)
+			rest := sh.startRest(label, durationOf(cfg.RestSec))
+			opt := promptOpts{status: rest.statusText}
+			endBPM, aborted := sh.promptBPM("end BPM", startBPM, opt)
 			notes := ""
 			if !aborted {
-				notes, aborted = sh.readLineSig("notes: ")
+				notes, aborted = sh.readPrompt("notes: ", promptOpts{status: rest.statusText, history: &sh.noteHistory})
 			}
 			if aborted {
+				rest.signal()
 				quit = true
 				break
 			}
-			<-restDone
+			sh.retainNotes(notes)
+			sh.waitRest(rest)
 
 			entry := model.Entry{
 				ExerciseID: ex.ID,
@@ -256,9 +288,17 @@ func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
 		if aborted || strings.EqualFold(line, "n") || strings.EqualFold(line, "no") {
 			break
 		}
-		cur = sh.swapOrder(cur)
-		sh.countdown(durationOf(cfg.BreakSec), "Break -- order swapped, next round ready")
+		cur = api.ScrambleRotation(cur)
+		sh.countdown(durationOf(cfg.BreakSec), "Break -- order scrambled, next round ready")
 		round++
+	}
+
+	if len(sess.Entries) == 0 {
+		if err := sh.api.DeleteSession(sess.ID); err != nil {
+			return err
+		}
+		fmt.Println("\nsession discarded -- nothing was recorded")
+		return nil
 	}
 
 	sess, err = sh.api.EndSession(sess.ID)
@@ -278,14 +318,6 @@ func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
 		}
 	}
 	return nil
-}
-
-func (sh *Shell) swapOrder(in []model.Exercise) []model.Exercise {
-	out := make([]model.Exercise, len(in))
-	for i := range in {
-		out[len(in)-1-i] = in[i]
-	}
-	return out
 }
 
 func durationOf(sec int) time.Duration {

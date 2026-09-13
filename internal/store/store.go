@@ -221,3 +221,15 @@ func (s *Store) UpdateSession(ss model.Session) error {
 	}
 	return fmt.Errorf("session %q not found", ss.ID)
 }
+
+func (s *Store) DeleteSession(id string) error {
+	unlock := s.lock()
+	defer unlock()
+	for i := range s.Sessions {
+		if s.Sessions[i].ID == id {
+			s.Sessions = append(s.Sessions[:i], s.Sessions[i+1:]...)
+			return s.saveSessions()
+		}
+	}
+	return fmt.Errorf("session %q not found", id)
+}

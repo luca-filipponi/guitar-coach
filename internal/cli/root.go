@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -12,18 +13,27 @@ import (
 )
 
 type Shell struct {
-	api *api.API
-	st  *store.Store
-	in  *input
-	sig chan os.Signal
+	api         *api.API
+	st          *store.Store
+	sig         chan os.Signal
+	noteHistory []string
+	warmup      time.Duration
+	alarmSound  string
+	alarmVolume float64
+	alarmCount  int
+	alarmGap    time.Duration
 }
 
 func New(st *store.Store) *Shell {
 	sh := &Shell{
-		api: api.New(st),
-		st:  st,
-		in:  newInput(),
-		sig: make(chan os.Signal, 1),
+		api:         api.New(st),
+		st:          st,
+		sig:         make(chan os.Signal, 1),
+		warmup:      5 * time.Minute,
+		alarmSound:  "/System/Library/Sounds/Ping.aiff",
+		alarmVolume: 2.5,
+		alarmCount:  3,
+		alarmGap:    220 * time.Millisecond,
 	}
 	signal.Notify(sh.sig, os.Interrupt, syscall.SIGTERM)
 	return sh
@@ -51,7 +61,9 @@ the GUITAR_COACH_DIR environment variable).`,
 	root.AddCommand(sh.newListCmd())
 	root.AddCommand(sh.newRemoveCmd())
 	root.AddCommand(sh.newTopicCmd())
+	root.AddCommand(sh.newDescriptionCmd())
 	root.AddCommand(sh.newStartCmd())
+	root.AddCommand(sh.newEditCmd())
 	root.AddCommand(sh.newSeedCmd())
 	root.AddCommand(sh.newHistoryCmd())
 	root.AddCommand(sh.newShowCmd())

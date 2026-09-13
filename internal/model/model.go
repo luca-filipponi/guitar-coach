@@ -1,10 +1,11 @@
 package model
 
 type Exercise struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Topic     string `json:"topic,omitempty"`
-	CreatedAt string `json:"created_at"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Topic       string `json:"topic,omitempty"`
+	Description string `json:"description,omitempty"`
+	CreatedAt   string `json:"created_at"`
 }
 
 type Config struct {

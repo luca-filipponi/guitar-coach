@@ -43,24 +43,31 @@ By default this refuses to touch a data dir that already has exercises. Pass
 }
 
 func (sh *Shell) seedDemo(weeks int) error {
-	type def struct{ name, topic string }
+	type def struct{ name, topic, desc string }
 	defs := []def{
-		{"chromatic warm-up", "warmup"},
-		{"alternate picking level 1", "alternate picking"},
-		{"alternate picking level 2", "alternate picking"},
-		{"economy picking runs", "economy picking"},
-		{"sweep arpeggios", "sweep picking"},
-		{"legato pentatonic licks", "legato"},
+		{"chromatic warm-up", "warmup", "4 notes per string, up and down, loose wrist"},
+		{"alternate picking level 1", "alternate picking", "16th notes on one string, strict down-up"},
+		{"alternate picking level 2", "alternate picking", "2 strings per run, crossing stays clean"},
+		{"economy picking runs", "economy picking", "3-notes-per-string economy sweeps"},
+		{"sweep arpeggios", "sweep picking", "5-string major arpeggios, legato on the change"},
+		{"legato pentatonic licks", "legato", "hammer-on / pull-off runs over the box"},
 	}
 
 	var pool []model.Exercise
 	for _, d := range defs {
-		ex, err := sh.api.CreateExercise(d.name, d.topic)
+		var ex model.Exercise
+		ex, err := sh.api.CreateExercise(d.name, d.topic, d.desc)
 		if errors.Is(err, api.ErrExists) {
 			ex, err = sh.api.FindExercise(d.name)
 		}
 		if err != nil {
 			return fmt.Errorf("seeding exercises: %w", err)
+		}
+		if ex.Description == "" && d.desc != "" {
+			ex, err = sh.api.SetDescription(ex.ID, d.desc)
+			if err != nil {
+				return fmt.Errorf("backfilling exercise description: %w", err)
+			}
 		}
 		pool = append(pool, ex)
 	}

@@ -24,16 +24,17 @@ func New(st *store.Store) *API {
 	return &API{store: st}
 }
 
-func (a *API) CreateExercise(name, topic string) (model.Exercise, error) {
+func (a *API) CreateExercise(name, topic, description string) (model.Exercise, error) {
 	name = strings.TrimSpace(name)
 	topic = strings.TrimSpace(topic)
+	description = strings.TrimSpace(description)
 	if name == "" {
 		return model.Exercise{}, errors.New("exercise name is required")
 	}
 	if a.store.FindExerciseByName(name) != nil {
 		return model.Exercise{}, fmt.Errorf("exercise %q %w", name, ErrExists)
 	}
-	ex := model.Exercise{ID: util.NewID("ex"), Name: name, Topic: topic, CreatedAt: util.NowRFC()}
+	ex := model.Exercise{ID: util.NewID("ex"), Name: name, Topic: topic, Description: description, CreatedAt: util.NowRFC()}
 	if err := a.store.AddExercise(ex); err != nil {
 		return model.Exercise{}, err
 	}
@@ -73,6 +74,18 @@ func (a *API) SetTopic(id, topic string) (model.Exercise, error) {
 		return model.Exercise{}, err
 	}
 	ex.Topic = strings.TrimSpace(topic)
+	if err := a.store.UpdateExercise(ex); err != nil {
+		return model.Exercise{}, err
+	}
+	return ex, nil
+}
+
+func (a *API) SetDescription(id, description string) (model.Exercise, error) {
+	ex, err := a.GetExercise(id)
+	if err != nil {
+		return model.Exercise{}, err
+	}
+	ex.Description = strings.TrimSpace(description)
 	if err := a.store.UpdateExercise(ex); err != nil {
 		return model.Exercise{}, err
 	}
@@ -171,6 +184,23 @@ func (a *API) AddSessionEntry(sessionID string, entry model.Entry) (model.Sessio
 	return sess, nil
 }
 
+// UpdateSessionEntry mutates a single entry (by 0-based index into the
+// session's Entries) and persists the session.
+func (a *API) UpdateSessionEntry(sessionID string, idx int, mutate func(*model.Entry)) (model.Session, error) {
+	sess, err := a.GetSession(sessionID)
+	if err != nil {
+		return model.Session{}, err
+	}
+	if idx < 0 || idx >= len(sess.Entries) {
+		return model.Session{}, fmt.Errorf("entry number out of range (1..%d)", len(sess.Entries))
+	}
+	mutate(&sess.Entries[idx])
+	if err := a.store.UpdateSession(sess); err != nil {
+		return model.Session{}, err
+	}
+	return sess, nil
+}
+
 func (a *API) EndSession(sessionID string) (model.Session, error) {
 	sess, err := a.GetSession(sessionID)
 	if err != nil {
@@ -181,4 +211,11 @@ func (a *API) EndSession(sessionID string) (model.Session, error) {
 		return model.Session{}, err
 	}
 	return sess, nil
+}
+
+func (a *API) DeleteSession(sessionID string) error {
+	if err := a.store.DeleteSession(sessionID); err != nil {
+		return fmt.Errorf("session %w", ErrNotFound)
+	}
+	return nil
 }

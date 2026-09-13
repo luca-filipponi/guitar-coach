@@ -50,7 +50,7 @@ func (sh *Shell) newHistoryCmd() *cobra.Command {
 					when:   util.ParseTime(s.StartedAt).Local().Format("Jan _2 15:04"),
 					rounds: model.MaxRound(entries),
 					sets:   len(entries),
-					dur:    util.FormatDuration(time.Duration(s.Config.DurationSec) * time.Second),
+					dur:    util.FormatDuration(sessionLength(s)),
 				})
 			}
 			if len(lines) == 0 {
@@ -97,6 +97,9 @@ func (sh *Shell) printSession(s model.Session) {
 	if s.EndedAt != "" {
 		fmt.Printf("ended  : %s\n", formatTimeRFC(s.EndedAt))
 	}
+	if d := sessionLength(s); d > 0 {
+		fmt.Printf("length : %s\n", util.FormatDuration(d))
+	}
 	fmt.Printf("plan   : %d exercises, %s each, %s rest, %s break\n",
 		s.Config.ExercisesPerRound,
 		util.FormatDuration(time.Duration(s.Config.DurationSec)*time.Second),
@@ -112,7 +115,8 @@ func (sh *Shell) printSession(s model.Session) {
 	fmt.Printf("order  : %s\n", strings.Join(names, " > "))
 
 	round := 0
-	for _, e := range s.Entries {
+	for i, e := range s.Entries {
+		idx := i + 1
 		if e.Round != round {
 			round = e.Round
 			fmt.Printf("\nround %d\n", round)
@@ -121,12 +125,28 @@ func (sh *Shell) printSession(s model.Session) {
 		if e.StartBPM > 0 || e.EndBPM > 0 {
 			bpm = fmt.Sprintf("%d -> %d", e.StartBPM, e.EndBPM)
 		}
-		fmt.Printf("  %d. %s  %s bpm", e.Sequence, e.Name, bpm)
+		fmt.Printf("  [%2d] %d. %s  %s bpm", idx, e.Sequence, e.Name, bpm)
 		if e.Notes != "" {
 			fmt.Printf("  [%s]", e.Notes)
 		}
 		fmt.Printf("\n")
 	}
+}
+
+// sessionLength is the wall-clock time from the session start to its end (or
+// the last recorded entry if there is no end timestamp).
+func sessionLength(s model.Session) time.Duration {
+	start := util.ParseTime(s.StartedAt)
+	end := util.ParseTime(s.EndedAt)
+	for _, e := range s.Entries {
+		if t := util.ParseTime(e.FinishedAt); t.After(end) {
+			end = t
+		}
+	}
+	if end.After(start) {
+		return end.Sub(start)
+	}
+	return 0
 }
 
 func formatTimeRFC(s string) string {

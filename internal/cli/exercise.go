@@ -11,14 +11,14 @@ import (
 )
 
 func (sh *Shell) newAddCmd() *cobra.Command {
-	var topic string
+	var topic, description string
 	cmd := &cobra.Command{
 		Use:   "add <name>...",
 		Short: "add one or more exercises",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			for _, name := range args {
-				ex, err := sh.api.CreateExercise(name, topic)
+				ex, err := sh.api.CreateExercise(name, topic, description)
 				if errors.Is(err, api.ErrExists) {
 					fmt.Printf("already exists: %s\n", name)
 					continue
@@ -33,6 +33,7 @@ func (sh *Shell) newAddCmd() *cobra.Command {
 		ValidArgsFunction: sh.noCompletion,
 	}
 	cmd.Flags().StringVar(&topic, "topic", "", "topic of the exercises (e.g. alternate picking)")
+	cmd.Flags().StringVar(&description, "description", "", "short description of the exercise")
 	cmd.RegisterFlagCompletionFunc("topic", sh.completeTopics)
 	return cmd
 }
@@ -69,6 +70,9 @@ func (sh *Shell) newListCmd() *cobra.Command {
 					fmt.Printf("  [%s]", ex.Topic)
 				}
 				fmt.Println()
+				if ex.Description != "" {
+					fmt.Printf("      %s\n", ex.Description)
+				}
 			}
 			return nil
 		},
