@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/luca-filipponi/guitar-coach/internal/api"
@@ -29,45 +30,91 @@ var appJS []byte
 var staticFS embed.FS
 
 const customCSS = `<style>
-:root{--pico-background-color:#0a0e13;--pico-primary:#4f9cf9;--pico-card-background-color:#121826}
-body{background:
- radial-gradient(1100px 520px at 85% -12%,#15233b 0%,transparent 60%),
- radial-gradient(900px 480px at -8% 112%,#1c1830 0%,transparent 55%),
- #0a0e13;background-attachment:fixed}
-.wrap{max-width:1080px;margin:0 auto;padding:1.5rem 1.5rem 3rem}
-header.top{display:flex;align-items:center;gap:.85rem;padding-bottom:1.1rem;border-bottom:1px solid var(--pico-muted-border-color);margin-bottom:1.6rem}
-header.top .logo{width:46px;height:46px;flex:none;filter:drop-shadow(0 2px 6px rgba(79,156,249,.25))}
-header.top h1{margin:0 0 .1rem;font-size:1.4rem}
+:root{
+ --pico-background-color:#0a0e13;
+ --pico-primary:#4f9cf9;
+ --pico-primary-hover:#6db0ff;
+ --pico-card-background-color:#111827;
+ --pico-muted-border-color:#223052;
+ --pico-muted-color:#93a3bb;
+ --pico-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Inter",ui-sans-serif,"Helvetica Neue",Arial,sans-serif;
+}
+html{scrollbar-color:#2b3b5c transparent}
+*{scrollbar-width:thin}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-thumb{background:#2b3b5c;border-radius:8px;border:3px solid #0a0e13}
+::-webkit-scrollbar-track{background:transparent}
+::selection{background:rgba(79,156,249,.35);color:#fff}
+body{
+ background:
+  radial-gradient(1000px 500px at 85% -10%,#15233b 0%,transparent 60%),
+  radial-gradient(800px 460px at -10% 108%,#1c1830 0%,transparent 55%),
+  #0a0e13;
+ background-attachment:fixed;
+ -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:1rem 1.5rem 4rem}
+header.top{
+ position:sticky;top:0;z-index:20;
+ display:flex;align-items:center;gap:.9rem;
+ padding:.6rem 0 .9rem;margin-bottom:1.4rem;
+ background:linear-gradient(180deg,rgba(10,14,19,.96) 55%,rgba(10,14,19,0));
+ -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+}
+header.top .logo{width:42px;height:42px;flex:none;filter:drop-shadow(0 3px 8px rgba(79,156,249,.35))}
+header.top h1{margin:0 0 .05rem;font-size:1.35rem;font-weight:700;letter-spacing:-.01em}
 header.top .tag{color:var(--pico-muted-color);font-size:.82rem}
-h2{margin:2rem 0 .4rem}
-.pill{display:inline-block;background:#1b2840;border:1px solid #2b3e5e;color:#9ec3ef;border-radius:999px;padding:.08rem .6rem;font-size:.77rem}
-.hint{color:var(--pico-muted-color);font-size:.83rem}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.75rem;margin:1.2rem 0 2rem}
-.stat{background:var(--pico-card-background-color);border:1px solid var(--pico-muted-border-color);border-radius:12px;padding:.9rem 1rem}
-.stat b{display:block;font-size:1.4rem}
-.stat span{color:var(--pico-muted-color);font-size:.77rem}
+h2{margin:2.2rem 0 .6rem;font-size:1.02rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#c8d4e5}
+.pill{display:inline-block;background:linear-gradient(180deg,#16233d,#101a30);border:1px solid #2c4370;color:#9dc2f0;border-radius:999px;padding:.1rem .65rem;font-size:.76rem;font-weight:500;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.hint{color:var(--pico-muted-color);font-size:.84rem}
+.legend{display:flex;flex-wrap:wrap;gap:.6rem 1.3rem;color:var(--pico-muted-color);font-size:.8rem;margin-top:.55rem}
+.legend span{display:inline-flex;align-items:center;gap:.4rem}
+.legend i{display:inline-block;width:18px;height:3px;border-radius:2px;background:var(--c,#ccc)}
+.legend .gold{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:7px solid #ffd45e;background:none}
+.legend .dot{width:7px;height:7px;border-radius:50%;background:var(--c,#ccc)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem;margin:1.2rem 0 2rem}
+.stat{position:relative;overflow:hidden;background:linear-gradient(160deg,#141d2f,#0e1523);border:1px solid #223052;border-radius:14px;padding:1rem 1.05rem;box-shadow:0 6px 20px rgba(0,0,0,.3);transition:transform .18s ease,border-color .18s ease}
+.stat:hover{transform:translateY(-2px);border-color:#33507f}
+.stat::before{content:'';position:absolute;inset:0 0 auto 0;height:2px;background:linear-gradient(90deg,var(--sc,#4f9cf9),transparent)}
+.stat::after{content:'';position:absolute;right:-18px;top:-18px;width:56px;height:56px;border-radius:50%;background:radial-gradient(closest-side,var(--sc,#4f9cf9) 0%,transparent 70%);opacity:.14;pointer-events:none}
+.stat b{display:block;font-size:1.5rem;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.stat span{color:var(--pico-muted-color);font-size:.76rem;text-transform:uppercase;letter-spacing:.04em}
+.stat:nth-child(1){--sc:#4f9cf9}.stat:nth-child(2){--sc:#7a5cf0}.stat:nth-child(3){--sc:#4bd484}.stat:nth-child(4){--sc:#f0875a}.stat:nth-child(5){--sc:#ffd45e}.stat:nth-child(6){--sc:#e85f9c}
+table{width:100%;border-collapse:separate;border-spacing:0;background:rgba(17,24,39,.7);border:1px solid #1d2a44;border-radius:12px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.28)}
+table th{text-align:left;font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;color:var(--pico-muted-color);background:rgba(23,32,52,.9);padding:.7rem .95rem;border-bottom:1px solid #1d2a44;font-weight:600;white-space:nowrap}
+table td{padding:.7rem .95rem;border-bottom:1px solid rgba(29,42,68,.55);font-size:.92rem;line-height:1.45}
+table tbody tr:last-child td{border-bottom:0}
+table tbody tr{transition:background .15s ease}
+tr[data-href],tr[data-topic]{cursor:pointer}
+tbody tr[data-href]:hover td,tbody tr[data-topic]:hover td{background:rgba(79,156,249,.08)}
+tbody tr[data-href]:hover td:first-child,tbody tr[data-topic]:hover td:first-child{box-shadow:inset 2px 0 0 var(--pico-primary)}
 #chart{margin-top:.7rem}
-.chart-note{position:absolute;z-index:5;pointer-events:none;max-width:280px;background:rgba(10,14,19,.94);border:1px solid #31404f;border-radius:8px;padding:.45rem .65rem;font-size:.8rem;line-height:1.4;color:#e8edf4;box-shadow:0 4px 14px rgba(0,0,0,.45);display:none}
+.u-legend{color:#c2ccd9;font-size:.8rem;padding:.35rem .6rem;background:rgba(10,14,19,.65);border:1px solid #1d2a44;border-radius:8px;margin-bottom:.55rem}
+.u-legend th{font-weight:600}
+.chart-note{position:absolute;z-index:5;pointer-events:none;max-width:280px;background:rgba(10,14,19,.96);border:1px solid #31404f;border-radius:10px;padding:.5rem .7rem;font-size:.8rem;line-height:1.45;color:#e8edf4;box-shadow:0 8px 24px rgba(0,0,0,.55);display:none}
 .chart-note b{color:var(--pico-primary);white-space:nowrap}
 .chart-note span{color:#c2ccd9}
 .desc{display:block;color:#c9d6e3;font-size:.86rem;margin-top:.12rem}
-tr[data-href]{cursor:pointer}
-tr[data-href]:hover td{text-decoration:underline}
-.pager{display:flex;gap:1rem;align-items:center;justify-content:space-between;margin-top:.7rem;color:var(--pico-muted-color);font-size:.9rem}
+.pager{display:flex;gap:.5rem;align-items:center;justify-content:space-between;margin-top:.9rem;color:var(--pico-muted-color);font-size:.9rem}
+.pager a{text-decoration:none;font-weight:600}
 .exblock{margin:0 0 1.8rem}
-.exblock h3{margin:.5rem 0 .1rem}
-.exchart{display:block;max-width:100%;height:auto;margin:.6rem 0 .2rem}
+.exblock h3{margin:.6rem 0 .15rem;font-size:1.05rem}
+.exchart{display:block;max-width:100%;height:auto;margin:.7rem 0 .25rem;filter:drop-shadow(0 10px 26px rgba(0,0,0,.4))}
 .exchart text{font-family:var(--pico-font-family)}
 .spark{display:block;width:110px;height:auto}
-.entry{display:flex;align-items:center;gap:.55rem;padding:.42rem .2rem;border-bottom:1px dashed #1b2634;flex-wrap:wrap}
-.entry .exname{color:var(--pico-primary);font-weight:600}
-.entry input[type=number]{width:4.2rem}
+.entry{display:flex;align-items:center;gap:.6rem;padding:.55rem .8rem;border:1px solid #1d2a44;border-radius:10px;background:rgba(17,24,39,.55);margin-bottom:.5rem;flex-wrap:wrap;transition:border-color .15s ease}
+.entry:hover{border-color:#2b3f6b}
+.entry .exname{color:var(--pico-primary);font-weight:600;min-width:8rem}
+.entry input[type=number],.entry input[type=text],.entry select{background:#0a0e13;border:1px solid #223052;border-radius:8px;padding:.32rem .5rem;color:#e8edf4}
+.entry input[type=number]{width:4.6rem}
 .entry input[type=text]{flex:1;min-width:12rem}
+.entry input:focus,.entry select:focus{outline:2px solid var(--pico-primary);outline-offset:1px;border-color:var(--pico-primary)}
 .entry .saved{opacity:0;color:#4bd484;font-size:.8rem;transition:opacity .25s}
 .entry.saving .saved{opacity:1}
-.stat{position:relative;overflow:hidden}
-.stat::before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:var(--sc,#4f9cf9);opacity:.85}
-.stat:nth-child(1){--sc:#4f9cf9}.stat:nth-child(2){--sc:#7a5cf0}.stat:nth-child(3){--sc:#4bd484}.stat:nth-child(4){--sc:#f0875a}.stat:nth-child(5){--sc:#ffd45e}.stat:nth-child(6){--sc:#e85f9c}
+button,.btn{transition:filter .15s ease,transform .1s ease}
+button:hover,.btn:hover{filter:brightness(1.08)}
+button:active,.btn:active{transform:translateY(1px)}
+:is(input,select,button):focus-visible{outline:2px solid var(--pico-primary);outline-offset:2px}
 </style>`
 
 const logoSVG = `<svg viewBox='0 0 64 64' class='logo' aria-hidden='true' xmlns='http://www.w3.org/2000/svg'>
@@ -121,6 +168,7 @@ func Listen(addr string, a *api.API, stop <-chan os.Signal) error {
 	mux.HandleFunc("GET /api/sessions", h.listSessions)
 	mux.HandleFunc("POST /api/sessions", h.createSession)
 	mux.HandleFunc("GET /api/sessions/{id}", h.getSession)
+	mux.HandleFunc("GET /exercises/{id}", h.exerciseProgressPage)
 	mux.HandleFunc("GET /sessions/{id}", h.sessionDetail)
 	mux.HandleFunc("POST /api/sessions/{id}/entries", h.addEntry)
 	mux.HandleFunc("PUT /api/sessions/{id}/entries/{n}", h.updateEntry)
@@ -235,6 +283,56 @@ func (h *handlers) exerciseProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, h.api.ExerciseProgress(id))
+}
+
+// exerciseProgressPage renders an exercise's history as an HTML table instead
+// of the raw JSON the API endpoint returns.
+func (h *handlers) exerciseProgressPage(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ex, err := h.api.GetExercise(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	pts := h.api.ExerciseProgress(id)
+
+	var b strings.Builder
+	b.WriteString("<div class='wrap'>")
+	b.WriteString("<p><a href='/?ex_page=1'>← dashboard</a></p>")
+	fmt.Fprintf(&b, "<h1>%s</h1>", htmlEscape(ex.Name))
+	if ex.Topic != "" {
+		fmt.Fprintf(&b, "<p><span class='pill'>%s</span></p>", htmlEscape(ex.Topic))
+	}
+	if ex.Description != "" {
+		fmt.Fprintf(&b, "<p class='desc'>%s</p>", htmlEscape(ex.Description))
+	}
+	if len(pts) == 0 {
+		b.WriteString("<p>No history yet for this exercise.</p>")
+	} else {
+		b.WriteString(renderMiniChart(pts))
+		fmt.Fprintf(&b, "<p class='hint'>%d recorded sets</p>", len(pts))
+		b.WriteString("<table><tr><th>When</th><th>Session</th><th>Round</th><th>Start</th><th>End</th><th>Notes</th></tr>")
+		for i := len(pts) - 1; i >= 0; i-- {
+			p := pts[i]
+			start := "—"
+			if p.StartBPM > 0 {
+				start = strconv.Itoa(p.StartBPM)
+			}
+			end := "—"
+			if p.EndBPM > 0 {
+				end = strconv.Itoa(p.EndBPM)
+			}
+			notes := ""
+			if p.Notes != "" {
+				notes = htmlEscape(p.Notes)
+			}
+			fmt.Fprintf(&b, "<tr><td>%s</td><td><a href='/sessions/%s'>%s</a></td><td>r%d</td><td>%s</td><td>%s</td><td>%s</td></tr>",
+				formatWebTime(p.Date), p.SessionID, p.SessionID, p.Round, start, end, notes)
+		}
+		b.WriteString("</table>")
+	}
+	b.WriteString("</div>")
+	writePage(w, ex.Name, b.String(), false)
 }
 
 func (h *handlers) listSessions(w http.ResponseWriter, r *http.Request) {
@@ -447,7 +545,7 @@ func (h *handlers) index(w http.ResponseWriter, r *http.Request) {
 				desc = "<span class='desc' title='" + htmlEscape(ex.Description) + "'>" + htmlEscape(ex.Description) + "</span>"
 			}
 			fmt.Fprintf(&b,
-				"<tr data-topic='%s'><td>%s%s</td><td>%s</td><td>%s</td><td><a href='/api/exercises/%s/progress'>data</a></td></tr>",
+				"<tr data-topic='%s'><td>%s%s</td><td>%s</td><td>%s</td><td><a href='/exercises/%s'>history</a></td></tr>",
 				htmlEscape(ex.Topic),
 				htmlEscape(ex.Name), desc,
 				topicHTML,
@@ -494,7 +592,7 @@ func (h *handlers) index(w http.ResponseWriter, r *http.Request) {
 		b.WriteString("<p>No sessions yet.</p>")
 	} else {
 		fmt.Fprintf(&b, "<p class='hint'>%d sessions, showing %d per page — click a row for the full history</p>", len(sessions), sessionsPerPage)
-		b.WriteString("<table><tr><th>ID</th><th>Started</th><th>Rounds</th><th>Exercises</th><th>Length</th><th>Detail</th></tr>")
+		b.WriteString("<table><tr><th>ID</th><th>Started</th><th>Rounds</th><th>Exercises</th><th>Length</th></tr>")
 		hi := len(sessions) - 1 - (page-1)*sessionsPerPage
 		lo := hi - sessionsPerPage + 1
 		if lo < 0 {
@@ -502,14 +600,13 @@ func (h *handlers) index(w http.ResponseWriter, r *http.Request) {
 		}
 		for i := hi; i >= lo; i-- {
 			s := sessions[i]
-			fmt.Fprintf(&b, "<tr data-href='/sessions/%s'><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%s</td><td><a href='/api/sessions/%s'>json</a></td></tr>",
+			fmt.Fprintf(&b, "<tr data-href='/sessions/%s'><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%s</td></tr>",
 				s.ID,
 				s.ID,
 				util.ParseTime(s.StartedAt).Local().Format("Jan 2 15:04"),
 				model.MaxRound(s.Entries),
 				len(s.Entries),
 				util.FormatDuration(serverSessionLength(s)),
-				s.ID,
 			)
 		}
 		b.WriteString("</table>")
@@ -613,6 +710,44 @@ func chartPoints(pts []api.ProgressPoint) []chartPoint {
 	return out
 }
 
+// fpt is a float point used to build smooth SVG paths.
+type fpt struct{ x, y float64 }
+
+// smoothPath converts sample points into a catmull-rom cubic bézier path, so
+// charts render as curvy lines instead of hard polyline segments.
+func smoothPath(pts []fpt) string {
+	if len(pts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "M%.2f %.2f", pts[0].x, pts[0].y)
+	for i := 0; i < len(pts)-1; i++ {
+		p0 := pts[max(i-1, 0)]
+		p1 := pts[i]
+		p2 := pts[i+1]
+		p3 := pts[min(i+2, len(pts)-1)]
+		c1x := p1.x + (p2.x-p0.x)/6
+		c1y := p1.y + (p2.y-p0.y)/6
+		c2x := p2.x - (p3.x-p1.x)/6
+		c2y := p2.y - (p3.y-p1.y)/6
+		fmt.Fprintf(&b, " C%.2f %.2f %.2f %.2f %.2f %.2f", c1x, c1y, c2x, c2y, p2.x, p2.y)
+	}
+	return b.String()
+}
+
+// fillPath closes a smooth path down to a baseline so the chart can be filled
+// with a gradient under the line. base is the y coordinate of the floor.
+func fillPath(pts []fpt, base float64) string {
+	if len(pts) == 0 {
+		return ""
+	}
+	return smoothPath(pts) + fmt.Sprintf(" L%.2f %.2f L%.2f %.2f Z", pts[len(pts)-1].x, base, pts[0].x, base)
+}
+
+var idCounter atomic.Uint64
+
+func nextID() uint64 { return idCounter.Add(1) }
+
 func renderSparkline(pts []api.ProgressPoint) string {
 	cp := chartPoints(pts)
 	if len(cp) == 0 {
@@ -620,7 +755,6 @@ func renderSparkline(pts []api.ProgressPoint) string {
 	}
 	const W, H = 110, 26
 	lo, hi := cp[0].end, cp[0].end
-	best := 0
 	for _, p := range cp {
 		if p.end < lo {
 			lo = p.end
@@ -628,31 +762,41 @@ func renderSparkline(pts []api.ProgressPoint) string {
 		if p.end > hi {
 			hi = p.end
 		}
-		if p.end > best {
-			best = p.end
-		}
 	}
 	if lo == hi {
 		lo, hi = lo-1, hi+1
 	}
-	x := func(i int) float64 { return 3 + float64(i)/float64(len(cp)-1)*(W-6) }
-	y := func(b int) float64 { return H - 4 - float64(b-lo)/float64(hi-lo)*(H-8) }
+	x := func(i int) float64 { return 2 + float64(i)/float64(len(cp)-1)*(W-4) }
+	y := func(b int) float64 { return 3 + float64(hi-b)/float64(hi-lo)*(H-6) }
+	ptsF := make([]fpt, len(cp))
+	for i, p := range cp {
+		ptsF[i] = fpt{x(i), y(p.end)}
+	}
+	gid := fmt.Sprintf("sp%d", nextID())
 	var b strings.Builder
 	b.WriteString("<svg class='spark' viewBox='0 0 110 26' role='img' aria-label='trend' xmlns='http://www.w3.org/2000/svg'>")
-	b.WriteString("<polyline fill='none' stroke='#5aa2e8' stroke-width='1.5' stroke-linejoin='round' points='")
-	for i, p := range cp {
-		fmt.Fprintf(&b, "%.1f,%.1f ", x(i), y(p.end))
-	}
-	b.WriteString("'/>")
-	for i, p := range cp {
-		fill := "#5aa2e8"
-		if p.end == best {
-			fill = "#ffd45e"
-		}
-		fmt.Fprintf(&b, "<circle cx='%.1f' cy='%.1f' r='1.8' fill='%s'/>", x(i), y(p.end), fill)
-	}
+	fmt.Fprintf(&b, "<defs><linearGradient id='%s' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='#5aa2e8' stop-opacity='.55'/><stop offset='1' stop-color='#5aa2e8' stop-opacity='.02'/></linearGradient></defs>", gid)
+	fmt.Fprintf(&b, "<path d='%s' fill='url(#%s)'/>", fillPath(ptsF, H-3), gid)
+	fmt.Fprintf(&b, "<path d='%s' fill='none' stroke='#5aa2e8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/>", smoothPath(ptsF))
 	b.WriteString("</svg>")
 	return b.String()
+}
+
+func formatDelta(d int) string {
+	if d >= 0 {
+		return fmt.Sprintf("+%d bpm all time", d)
+	}
+	return fmt.Sprintf("%d bpm all time", d)
+}
+
+func deltaColor(d int) string {
+	if d > 0 {
+		return "#4bd484"
+	}
+	if d < 0 {
+		return "#f0875a"
+	}
+	return "#93a3bb"
 }
 
 func renderMiniChart(pts []api.ProgressPoint) string {
@@ -705,47 +849,74 @@ func renderMiniChart(pts []api.ProgressPoint) string {
 	if hi-lo > 200 {
 		step = 50
 	}
-	var b strings.Builder
-	b.WriteString("<svg class='exchart' viewBox='0 0 520 150' role='img' aria-label='exercise BPM history' xmlns='http://www.w3.org/2000/svg'>")
-	b.WriteString("<rect width='520' height='150' rx='8' fill='#0f141c'/>")
-	for v := ((lo + step - 1) / step) * step; v <= hi; v += step {
-		yy := y(v)
-		fmt.Fprintf(&b, "<line x1='%d' y1='%.1f' x2='%d' y2='%.1f' stroke='#1b2634'/>", PL, yy, W-PR, yy)
-		fmt.Fprintf(&b, "<text x='%d' y='%.1f' text-anchor='end' fill='#9fb2c6'>%d</text>", PL-5, yy+3, v)
-	}
-	fmt.Fprintf(&b, "<text x='%d' y='%d' text-anchor='start' fill='#9fb2c6'>%s</text>", PL, H-7, t0.Format("Jan 2"))
-	fmt.Fprintf(&b, "<text x='%d' y='%d' text-anchor='end' fill='#9fb2c6'>%s</text>", W-PR, H-7, t1.Format("Jan 2"))
-	b.WriteString("<polyline fill='none' stroke='#5aa2e8' stroke-opacity='.45' stroke-width='1' stroke-linejoin='round' points='")
+
+	startPts := make([]fpt, 0, len(cp))
+	endPts := make([]fpt, 0, len(cp))
 	hasStart := false
 	for _, p := range cp {
+		ex := x(p.t)
+		endPts = append(endPts, fpt{ex, y(p.end)})
 		if p.start > 0 {
 			hasStart = true
 		}
-	}
-	if hasStart {
-		for _, p := range cp {
-			if p.start > 0 {
-				fmt.Fprintf(&b, "%.1f,%.1f ", x(p.t), y(p.start))
-			} else {
-				fmt.Fprintf(&b, "%.1f,%.1f ", x(p.t), y(p.end))
-			}
+		if p.start > 0 {
+			startPts = append(startPts, fpt{ex, y(p.start)})
+		} else {
+			startPts = append(startPts, fpt{ex, y(p.end)})
 		}
 	}
-	b.WriteString("'/>")
-	b.WriteString("<polyline fill='none' stroke='#f0875a' stroke-width='1.6' stroke-linejoin='round' points='")
-	for _, p := range cp {
-		fmt.Fprintf(&b, "%.1f,%.1f ", x(p.t), y(p.end))
+	base := float64(H - PB)
+	endID := fmt.Sprintf("endg%d", nextID())
+	startID := fmt.Sprintf("startg%d", nextID())
+
+	var b strings.Builder
+	b.WriteString("<svg class='exchart' viewBox='0 0 520 150' role='img' aria-label='exercise BPM history' xmlns='http://www.w3.org/2000/svg'>")
+	b.WriteString("<defs>")
+	fmt.Fprintf(&b,
+		"<linearGradient id='%s' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='#f0875a' stop-opacity='.32'/><stop offset='1' stop-color='#f0875a' stop-opacity='.02'/></linearGradient>", endID)
+	fmt.Fprintf(&b,
+		"<linearGradient id='%s' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='#5aa2e8' stop-opacity='.25'/><stop offset='1' stop-color='#5aa2e8' stop-opacity='0'/></linearGradient>", startID)
+	b.WriteString("</defs>")
+	fmt.Fprintf(&b, "<rect width='520' height='150' rx='10' fill='#0f141c'/>")
+	// horizontal gridlines (dashed) with labels
+	for v := ((lo + step - 1) / step) * step; v <= hi; v += step {
+		yy := y(v)
+		fmt.Fprintf(&b, "<line x1='%d' y1='%.1f' x2='%d' y2='%.1f' stroke='#1d2940' stroke-dasharray='3 5'/>", PL, yy, W-PR, yy)
+		fmt.Fprintf(&b, "<text x='%d' y='%.1f' text-anchor='end' fill='#8fa3b8' font-size='9'>%d</text>", PL-6, yy+3, v)
 	}
-	b.WriteString("'/>")
+	// date labels
+	fmt.Fprintf(&b, "<text x='%d' y='%d' text-anchor='start' fill='#8fa3b8' font-size='9'>%s</text>", PL, H-7, t0.Format("Jan 2"))
+	fmt.Fprintf(&b, "<text x='%d' y='%d' text-anchor='end' fill='#8fa3b8' font-size='9'>%s</text>", W-PR, H-7, t1.Format("Jan 2"))
+	// gradient fills under each line
+	fmt.Fprintf(&b, "<path d='%s' fill='url(#%s)'/>", fillPath(endPts, base), endID)
+	if hasStart {
+		fmt.Fprintf(&b, "<path d='%s' fill='url(#%s)'/>", fillPath(startPts, base), startID)
+	}
+	// start line (dashed, so it reads as a secondary series)
+	if hasStart {
+		fmt.Fprintf(&b, "<path d='%s' fill='none' stroke='#5aa2e8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' stroke-dasharray='1 4'/>", smoothPath(startPts))
+	}
+	// end line (the primary series)
+	fmt.Fprintf(&b, "<path d='%s' fill='none' stroke='#f0875a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>", smoothPath(endPts))
+	// per-point dots, gold on record values
 	for _, p := range cp {
 		if p.end == best {
-			fmt.Fprintf(&b, "<path d='M%.1f %.1f l2 3.2 l-4 0 z' fill='#ffd45e'/>", x(p.t), y(p.end)-2.2)
+			fmt.Fprintf(&b, "<path d='M%.1f %.1f l2 3.4 l-4 0 z' fill='#ffd45e'/>", x(p.t), y(p.end)-2.6)
 		} else {
 			fmt.Fprintf(&b, "<circle cx='%.1f' cy='%.1f' r='2.2' fill='#f0875a'/>", x(p.t), y(p.end))
 		}
 	}
+	if len(cp) == 1 {
+		fmt.Fprintf(&b, "<circle cx='%.1f' cy='%.1f' r='3' fill='#f0875a'/>", x(cp[0].t), y(cp[0].end))
+	}
 	b.WriteString("</svg>")
-	fmt.Fprintf(&b, "<div class='hint'>best %d bpm · %d sets</div>", best, len(cp))
+	delta := cp[len(cp)-1].end - cp[0].end
+	fmt.Fprintf(&b, "<div class='legend'><span><i style='--c:#f0875a'></i>end bpm</span><span><i style='--c:#5aa2e8'></i>start bpm</span>")
+	if best > 0 {
+		fmt.Fprintf(&b, "<span><i class='gold'></i>record %d bpm</span>", best)
+	}
+	fmt.Fprintf(&b, "<span><i class='dot' style='--c:%s'></i>%s</span>", deltaColor(delta), formatDelta(delta))
+	fmt.Fprintf(&b, "<span>%d sets</span></div>", len(cp))
 	return b.String()
 }
 

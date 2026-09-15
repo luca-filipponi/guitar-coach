@@ -36,9 +36,22 @@
   const filter = document.getElementById('topic-filter');
   if (!select || !chart) return;
 
+  // The topic filter reloads the page to re-render the server-side table, but a
+  // plain navigation resets scroll to the top. Stash the scroll position first
+  // and restore it on the next load so the dropdown doesn't "jump" the page.
+  const SCROLL_KEY = 'gc-scroll';
   if (filter) filter.addEventListener('change', () => {
+    sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
     location.href = filter.value ? '/?topic=' + encodeURIComponent(filter.value) : '/';
   });
+  const savedY = Number(sessionStorage.getItem(SCROLL_KEY));
+  if (sessionStorage.getItem(SCROLL_KEY) !== null) {
+    sessionStorage.removeItem(SCROLL_KEY);
+    requestAnimationFrame(() => {
+      window.scrollTo(0, savedY);
+      setTimeout(() => window.scrollTo(0, savedY), 120);
+    });
+  }
   select.addEventListener('change', () => load(select.value));
 
   document.querySelectorAll('tr[data-href]').forEach(tr => {
@@ -112,10 +125,29 @@
       width: target.clientWidth || 760,
       height: 320,
       padding: [14, 14, 8, 8],
-      scales: { x: { time: true }, y: { auto: true } },
+      scales: { x: { time: true }, y: { auto: true, range: (u, min, max) => {
+        // pad the range so lines have breathing room top and bottom
+        const pad = Math.max(4, Math.round((max - min) * 0.18));
+        return pad ? [min - pad, max + pad] : [min, max];
+      } } },
+      legend: { show: true },
+      cursor: {
+        x: true, y: false,
+        stroke: 'rgba(255,255,255,.35)',
+        width: 1,
+        dash: [4, 4]
+      },
       axes: [
-        { stroke: '#9fb2c6', grid: { stroke: 'rgba(120,145,175,.14)' }, ticks: { stroke: '#31404f' } },
-        { stroke: '#9fb2c6', grid: { stroke: 'rgba(120,145,175,.14)' }, ticks: { stroke: '#31404f' }, label: 'BPM' }
+        {
+          stroke: '#9fb2c6', font: '11px system-ui', size: 26,
+          grid: { stroke: 'rgba(120,145,175,.10)', width: 1, dash: [3, 5] },
+          ticks: { stroke: '#31404f' }
+        },
+        {
+          stroke: '#9fb2c6', font: '11px system-ui', size: 26, label: 'BPM',
+          grid: { stroke: 'rgba(120,145,175,.10)', width: 1, dash: [3, 5] },
+          ticks: { stroke: '#31404f' }
+        }
       ],
       hooks: {
         setCursor: [u => {
@@ -126,7 +158,7 @@
           }
           const p = points[idx];
           tip.innerHTML = '<b>' + fmtDate(data[0][idx]) + '</b> · ' +
-            (p.start_bpm > 0 ? p.start_bpm : '—') + ' → ' +
+            (p.start_bpm > 0 ? p.start_bpm + ' → ' : '') +
             (p.end_bpm > 0 ? p.end_bpm + ' bpm' : '—') +
             (p.notes ? '<br><span>' + escapeHtml(p.notes) + '</span>' : '');
           tip.style.display = 'block';
@@ -152,15 +184,17 @@
           }
         },
         {
-          label: 'start bpm', stroke: palette.start, width: 2, spanGaps: true,
-          value: raw => raw === null ? '-' : raw + ' bpm'
+          label: 'start bpm', stroke: palette.start, width: 1.5, spanGaps: true, dash: [2, 5],
+          fill: 'rgba(90,162,232,.08)',
+          value: (u, raw) => raw === null || raw === undefined ? '-' : raw + ' bpm'
         },
         {
-          label: 'end bpm', stroke: palette.end, width: 2, spanGaps: true,
-          value: raw => raw === null ? '-' : raw + ' bpm',
+          label: 'end bpm', stroke: palette.end, width: 2.5, spanGaps: true,
+          fill: 'rgba(240,135,90,.14)',
+          value: (u, raw) => raw === null || raw === undefined ? '-' : raw + ' bpm',
           points: {
             show: true,
-            size: (u, i) => pr[i] ? 9 : 4,
+            size: (u, i) => pr[i] ? 7 : 4,
             stroke: (u, i) => pr[i] ? palette.gold : palette.end,
             fill: (u, i) => pr[i] ? 'rgba(255,212,94,.25)' : '#0b0f14'
           }

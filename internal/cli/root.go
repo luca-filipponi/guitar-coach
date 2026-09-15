@@ -68,6 +68,7 @@ the GUITAR_COACH_DIR environment variable).`,
 	root.AddCommand(sh.newHistoryCmd())
 	root.AddCommand(sh.newShowCmd())
 	root.AddCommand(sh.newServeCmd())
+	root.AddCommand(sh.newStopCmd())
 	root.AddCommand(versionCmd())
 
 	return root
