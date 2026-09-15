@@ -59,6 +59,15 @@ tr[data-href]:hover td{text-decoration:underline}
 .exchart{display:block;max-width:100%;height:auto;margin:.6rem 0 .2rem}
 .exchart text{font-family:var(--pico-font-family)}
 .spark{display:block;width:110px;height:auto}
+.entry{display:flex;align-items:center;gap:.55rem;padding:.42rem .2rem;border-bottom:1px dashed #1b2634;flex-wrap:wrap}
+.entry .exname{color:var(--pico-primary);font-weight:600}
+.entry input[type=number]{width:4.2rem}
+.entry input[type=text]{flex:1;min-width:12rem}
+.entry .saved{opacity:0;color:#4bd484;font-size:.8rem;transition:opacity .25s}
+.entry.saving .saved{opacity:1}
+.stat{position:relative;overflow:hidden}
+.stat::before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:var(--sc,#4f9cf9);opacity:.85}
+.stat:nth-child(1){--sc:#4f9cf9}.stat:nth-child(2){--sc:#7a5cf0}.stat:nth-child(3){--sc:#4bd484}.stat:nth-child(4){--sc:#f0875a}.stat:nth-child(5){--sc:#ffd45e}.stat:nth-child(6){--sc:#e85f9c}
 </style>`
 
 const logoSVG = `<svg viewBox='0 0 64 64' class='logo' aria-hidden='true' xmlns='http://www.w3.org/2000/svg'>
@@ -114,6 +123,7 @@ func Listen(addr string, a *api.API, stop <-chan os.Signal) error {
 	mux.HandleFunc("GET /api/sessions/{id}", h.getSession)
 	mux.HandleFunc("GET /sessions/{id}", h.sessionDetail)
 	mux.HandleFunc("POST /api/sessions/{id}/entries", h.addEntry)
+	mux.HandleFunc("PUT /api/sessions/{id}/entries/{n}", h.updateEntry)
 	mux.HandleFunc("POST /api/sessions/{id}/end", h.endSession)
 	mux.HandleFunc("GET /{$}", h.index)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(mustSub(staticFS, "static")))))
@@ -282,6 +292,43 @@ func (h *handlers) addEntry(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, sess)
 }
 
+func (h *handlers) updateEntry(w http.ResponseWriter, r *http.Request) {
+	idx, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil {
+		http.Error(w, "entry number must be an integer", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Notes    *string `json:"notes"`
+		StartBPM *int    `json:"start_bpm"`
+		EndBPM   *int    `json:"end_bpm"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sess, err := h.api.UpdateSessionEntry(r.PathValue("id"), idx, func(e *model.Entry) {
+		if req.Notes != nil {
+			e.Notes = *req.Notes
+		}
+		if req.StartBPM != nil {
+			e.StartBPM = *req.StartBPM
+		}
+		if req.EndBPM != nil {
+			e.EndBPM = *req.EndBPM
+		}
+	})
+	if err != nil {
+		if errors.Is(err, api.ErrNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, sess)
+}
+
 func (h *handlers) endSession(w http.ResponseWriter, r *http.Request) {
 	sess, err := h.api.EndSession(r.PathValue("id"))
 	if err != nil {
@@ -365,7 +412,7 @@ func (h *handlers) index(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("<div class='wrap'>")
 	b.WriteString(pageHeader("guitar-coach", "deliberate practice, tracked"))
 	b.WriteString(renderStats(computeStats(sessions, exercises)))
-	b.WriteString("<p class='hint'>Timed practice sessions run from the terminal: <code>guitar-coach start</code>. This dashboard is read-only for now.</p>")
+	b.WriteString("<p class='hint'>Timed practice sessions run from the terminal: <code>guitar-coach start</code>. Open a session to fix entries.</p>")
 
 	b.WriteString("<h2>Exercises</h2>")
 	if len(filtered) == 0 {
@@ -753,7 +800,7 @@ func (h *handlers) sessionDetail(w http.ResponseWriter, r *http.Request) {
 		exByID[ex.ID] = ex
 	}
 	var b strings.Builder
-	b.WriteString("<div class='wrap'>")
+	b.WriteString("<div class='wrap' data-session='" + sess.ID + "'>")
 	b.WriteString("<p><a href='/?page=1'>← dashboard</a></p>")
 	fmt.Fprintf(&b, "<h1>session %s</h1>", sess.ID)
 	fmt.Fprintf(&b, "<p>started %s", formatWebTime(sess.StartedAt))
@@ -780,7 +827,7 @@ func (h *handlers) sessionDetail(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, "<p>order: %s</p>", htmlEscape(strings.Join(names, " → ")))
 	}
 	round := 0
-	for _, e := range sess.Entries {
+	for i, e := range sess.Entries {
 		if e.Round != round {
 			round = e.Round
 			fmt.Fprintf(&b, "<h2>round %d</h2>", round)
@@ -789,15 +836,13 @@ func (h *handlers) sessionDetail(w http.ResponseWriter, r *http.Request) {
 		if name == "" {
 			name = nameByID[e.ExerciseID]
 		}
-		bpm := "n/a"
-		if e.StartBPM > 0 || e.EndBPM > 0 {
-			bpm = fmt.Sprintf("%d → %d", e.StartBPM, e.EndBPM)
-		}
-		fmt.Fprintf(&b, "<p>%d. %s <code>%s bpm</code>", e.Sequence, htmlEscape(name), bpm)
-		if e.Notes != "" {
-			fmt.Fprintf(&b, " <span style='color:#93a2b3'>%s</span>", htmlEscape(e.Notes))
-		}
-		b.WriteString("</p>")
+		fmt.Fprintf(&b, "<div class='entry'><span>%d.</span> <span class='exname'>%s</span>", e.Sequence, htmlEscape(name))
+		fmt.Fprintf(&b, "<input type='number' data-idx='%d' data-field='start_bpm' value='%d' title='start bpm'>", i, e.StartBPM)
+		b.WriteString(" → ")
+		fmt.Fprintf(&b, "<input type='number' data-idx='%d' data-field='end_bpm' value='%d' title='end bpm'>", i, e.EndBPM)
+		b.WriteString(" bpm")
+		fmt.Fprintf(&b, "<input type='text' data-idx='%d' data-field='notes' value='%s' placeholder='notes'>", i, htmlEscape(e.Notes))
+		b.WriteString("<span class='saved'>saved</span></div>")
 	}
 	seen := make(map[string]bool)
 	var uniq []string
@@ -828,7 +873,7 @@ func (h *handlers) sessionDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	b.WriteString("</div>")
-	writePage(w, "session "+sess.ID, b.String(), false)
+	writePage(w, "session "+sess.ID, b.String(), true)
 }
 
 func formatWebTime(rfc string) string {

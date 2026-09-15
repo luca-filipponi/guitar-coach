@@ -1,3 +1,35 @@
+(function () {
+  var sessionEl = document.querySelector('[data-session]');
+  if (!sessionEl) return;
+  var sessionId = sessionEl.dataset.session;
+
+  function flash(entry) {
+    entry.classList.add('saving');
+    setTimeout(function () { entry.classList.remove('saving'); }, 1400);
+  }
+
+  document.querySelectorAll('.entry [data-field]').forEach(function (field) {
+    field.addEventListener('change', function () {
+      var idx = field.dataset.idx;
+      var body = {};
+      body[field.dataset.field] = field.type === 'number'
+        ? (field.value === '' ? 0 : Number(field.value))
+        : field.value;
+      fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/entries/' + encodeURIComponent(idx), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }).then(function (res) {
+        if (res.ok) {
+          flash(field.closest('.entry'));
+        } else {
+          alert('save failed (HTTP ' + res.status + ')');
+        }
+      });
+    });
+  });
+})();
+
 (async function () {
   const select = document.getElementById('exercise-select');
   const chart = document.getElementById('chart');

@@ -93,11 +93,12 @@ func (a *API) SetDescription(id, description string) (model.Exercise, error) {
 }
 
 type ProgressPoint struct {
-	Date     string `json:"date"`
-	Round    int    `json:"round,omitempty"`
-	StartBPM int    `json:"start_bpm,omitempty"`
-	EndBPM   int    `json:"end_bpm"`
-	Notes    string `json:"notes,omitempty"`
+	Date      string `json:"date"`
+	SessionID string `json:"session_id,omitempty"`
+	Round     int    `json:"round,omitempty"`
+	StartBPM  int    `json:"start_bpm,omitempty"`
+	EndBPM    int    `json:"end_bpm"`
+	Notes     string `json:"notes,omitempty"`
 }
 
 func (a *API) ExerciseProgress(exerciseID string) []ProgressPoint {
@@ -106,11 +107,12 @@ func (a *API) ExerciseProgress(exerciseID string) []ProgressPoint {
 		for _, e := range s.Entries {
 			if e.ExerciseID == exerciseID {
 				pts = append(pts, ProgressPoint{
-					Date:     util.ParseTime(e.FinishedAt).Format(time.RFC3339),
-					Round:    e.Round,
-					StartBPM: e.StartBPM,
-					EndBPM:   e.EndBPM,
-					Notes:    e.Notes,
+					Date:      util.ParseTime(e.FinishedAt).Format(time.RFC3339),
+					SessionID: s.ID,
+					Round:     e.Round,
+					StartBPM:  e.StartBPM,
+					EndBPM:    e.EndBPM,
+					Notes:     e.Notes,
 				})
 			}
 		}

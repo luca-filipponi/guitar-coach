@@ -86,9 +86,7 @@ func (sh *Shell) retainNotes(note string) {
 // editLine implements the raw-mode line editor.
 func (sh *Shell) editLine(label string, opts promptOpts) (string, bool) {
 	showStatus := opts.status != nil && opts.status() != ""
-	if showStatus {
-		fmt.Print("\n")
-	}
+	cols := termCols()
 
 	var buf []rune
 	if opts.initial != "" {
@@ -104,21 +102,87 @@ func (sh *Shell) editLine(label string, opts promptOpts) (string, bool) {
 		lastStatus = opts.status()
 	}
 	dirty := true
+	prevRows := 0
 
-	draw := func() {
-		if showStatus {
-			st := ""
-			if opts.status != nil {
-				st = opts.status()
+	// rowsOccupied returns how many terminal rows the status+prompt block
+	// occupies, counting a wrapped prompt line.
+	rowsOccupied := func(st string) int {
+		rows := 0
+		if showStatus && st != "" {
+			rows++
+		}
+		n := utf8.RuneCountInString(label) + len(buf)
+		if n == 0 {
+			return rows + 1
+		}
+		return rows + (n+cols-1)/cols
+	}
+
+	// redraw repaints the status and prompt lines. The previous block is
+	// erased by moving up over its rows and clearing each one, so wrapped
+	// prompt text never leaves residue (no stray characters or spacing).
+	redraw := func() {
+		st := ""
+		if showStatus && opts.status != nil {
+			st = opts.status()
+		}
+		if prevRows > 0 {
+			if prevRows > 1 {
+				fmt.Printf("\x1b[%dA", prevRows)
+			} else {
+				fmt.Print("\x1b[1A")
 			}
-			if st != "" {
-				fmt.Printf("\x1b[1A\x1b[2K%s", st)
-				fmt.Printf("\x1b[1B")
+			for i := 0; i < prevRows; i++ {
+				fmt.Print("\r\x1b[2K")
+				if i < prevRows-1 {
+					fmt.Print("\x1b[B")
+				}
+			}
+			if prevRows > 1 {
+				fmt.Printf("\x1b[%dA", prevRows-1)
 			}
 		}
-		fmt.Printf("\r\x1b[K%s%s", label, string(buf))
+		if st != "" {
+			fmt.Print(st)
+			fmt.Print("\x1b[1E")
+		}
+		fmt.Printf("%s%s", label, string(buf))
 		if pos < len(buf) {
-			fmt.Printf("\x1b[%dG", utf8.RuneCountInString(label)+pos+1)
+			// place the cursor at the edit position, accounting for wraps
+			target := utf8.RuneCountInString(label) + pos
+			total := utf8.RuneCountInString(label) + len(buf)
+			tr, tc := gridPos(target, cols)
+			er, ec := gridPos(total, cols)
+			if dr := tr - er; dr != 0 {
+				if dr > 0 {
+					fmt.Printf("\x1b[%dB", dr)
+				} else {
+					fmt.Printf("\x1b[%dA", -dr)
+				}
+			}
+			if tc != ec {
+				fmt.Printf("\x1b[%dG", tc+1)
+			}
+		}
+		prevRows = rowsOccupied(st)
+	}
+
+	// erase the whole block, leaving the cursor on the last row so the
+	// prompt's own line is where the session output resumes.
+	clearBlock := func() {
+		if prevRows <= 0 {
+			return
+		}
+		if prevRows > 1 {
+			fmt.Printf("\x1b[%dA", prevRows)
+		} else {
+			fmt.Print("\x1b[1A")
+		}
+		for i := 0; i < prevRows; i++ {
+			fmt.Print("\r\x1b[2K")
+			if i < prevRows-1 {
+				fmt.Print("\x1b[B")
+			}
 		}
 	}
 
@@ -129,7 +193,7 @@ func (sh *Shell) editLine(label string, opts promptOpts) (string, bool) {
 
 	for {
 		if dirty {
-			draw()
+			redraw()
 			dirty = false
 		}
 
@@ -160,18 +224,18 @@ func (sh *Shell) editLine(label string, opts promptOpts) (string, bool) {
 			escState = 1
 		case c == 3 || c == 26: // Ctrl-C / Ctrl-Z
 			flushStdio()
-			clearPrompt(showStatus)
+			clearBlock()
 			return "", true
 		case c == 4: // Ctrl-D
 			if len(buf) == 0 {
 				flushStdio()
-				clearPrompt(showStatus)
+				clearBlock()
 				return "", true
 			}
 			fallthrough
 		case c == 13 || c == 10: // Enter
 			line := strings.TrimSpace(string(buf))
-			clearPrompt(showStatus)
+			clearBlock()
 			fmt.Print("\n")
 			return line, false
 		case c == 8 || c == 127: // Backspace
@@ -203,6 +267,25 @@ func (sh *Shell) editLine(label string, opts promptOpts) (string, bool) {
 	}
 }
 
+// gridPos maps a rune index within printed text to its terminal grid cell
+// (0-based row and column). Exactly-cols-length text leaves the cursor at the
+// end of the row without triggering a wrap.
+func gridPos(n, cols int) (int, int) {
+	if n > 0 && n%cols == 0 {
+		return n/cols - 1, cols - 1
+	}
+	return n / cols, n % cols
+}
+
+// termCols returns the current terminal width in columns, falling back to 80.
+func termCols() int {
+	ws, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ)
+	if err != nil || ws.Col == 0 {
+		return 80
+	}
+	return int(ws.Col)
+}
+
 // handleEscape consumes the bytes of an escape sequence. Escape sequences
 // we do not understand are fully consumed and discarded so no stray bytes
 // leak into the typed line.
@@ -212,6 +295,10 @@ func handleEscape(state int, c byte, seq *[]byte, opts promptOpts, buf *[]rune, 
 		if c == '[' {
 			*seq = nil
 			return 2, false
+		}
+		if c == 0x7f || c == 0x08 { // Alt/Option+Backspace (ESC DEL / ESC BS)
+			*pos = deleteWordBackward(*buf, *pos)
+			return 0, true
 		}
 		return 0, false // ESC followed by something else: ignore the whole thing
 	case 2: // ESC [ ...: accumulate until a final byte (0x40-0x7E)
@@ -301,16 +388,6 @@ func parseBufInt(buf []rune) (int, bool) {
 		return 0, false
 	}
 	return n, true
-}
-
-// clearPrompt erases the status line (when present) and the prompt line the
-// editor was drawing on.
-func clearPrompt(showStatus bool) {
-	if showStatus {
-		fmt.Printf("\x1b[1A\x1b[2K")
-		fmt.Printf("\x1b[1B")
-	}
-	fmt.Print("\r\x1b[K")
 }
 
 // flushStdio discards any pending standard-input bytes so a struck key or a

@@ -76,9 +76,19 @@ guitar-coach serve        # web UI + charts at http://localhost:8080
 
 ## Data
 
-Stored as versioned JSON in `~/.guitar-coach` (override with `--dir <path>` or
-the `GUITAR_COACH_DIR` environment variable). Every `--dir` is independent, so
-demo data never mixes with your real history.
+Stored in a local SQLite database, `guitar-coach.db`, inside `~/.guitar-coach`
+(override with `--dir <path>` or the `GUITAR_COACH_DIR` environment variable).
+Every `--dir` is independent, so demo data never mixes with your real history.
+
+The schema lives in `internal/store/schema.sql` (versioned with
+`PRAGMA user_version`) so it can be reviewed in plain SQL. The web UI reads
+straight from the database on every request: if a new session is recorded by a
+terminal `start` while `serve` is running, it shows up on refresh.
+
+Legacy installs (pre-SQLite) are migrated automatically on first open: the old
+`exercises.json`/`sessions.json` are imported into SQLite and then removed.
+Your practice data lives under `~/.guitar-coach`, outside the repository, so it
+is never committed or pushed.
 
 ## Releases & versioning
 

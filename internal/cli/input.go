@@ -138,11 +138,11 @@ func (sh *Shell) showHistory(exID string) {
 		return
 	}
 
-	lastBPM, lastDate := 0, ""
+	lastBPM, lastWhen := 0, ""
 	for i := len(points) - 1; i >= 0; i-- {
 		if points[i].EndBPM > 0 {
 			lastBPM = points[i].EndBPM
-			lastDate = points[i].Date[:10]
+			lastWhen = formatPointTime(points[i].Date)
 			break
 		}
 	}
@@ -155,7 +155,7 @@ func (sh *Shell) showHistory(exID string) {
 	}
 	line := "  last: "
 	if lastBPM > 0 {
-		line += fmt.Sprintf("%d bpm on %s", lastBPM, lastDate)
+		line += fmt.Sprintf("%d bpm on %s", lastBPM, lastWhen)
 	} else {
 		line += "no bpm yet"
 	}
@@ -171,14 +171,21 @@ func (sh *Shell) showHistory(exID string) {
 	fmt.Println("  recent history:")
 	for i := len(points) - 1; i >= from; i-- {
 		p := points[i]
-		note := p.Notes
-		if len(note) > 40 {
-			note = note[:40] + "..."
-		}
 		bpm := fmt.Sprintf("%d -> %d", p.StartBPM, p.EndBPM)
 		if p.StartBPM == 0 && p.EndBPM == 0 {
 			bpm = "n/a"
 		}
-		fmt.Printf("    %s  %s bpm  r%d  %s\n", p.Date[:10], bpm, p.Round, note)
+		fmt.Printf("    %s  %s  %s bpm  r%d  %s\n", formatPointTime(p.Date), p.SessionID, bpm, p.Round, p.Notes)
 	}
+}
+
+// formatPointTime renders a progress point's timestamp as a local date+time,
+// so the same exercise recorded in different sessions (or rounds) is
+// distinguishable at a glance.
+func formatPointTime(rfc string) string {
+	t := util.ParseTime(rfc)
+	if t.IsZero() {
+		return rfc
+	}
+	return t.Local().Format("2006-01-02 15:04")
 }
