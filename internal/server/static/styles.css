@@ -109,6 +109,8 @@ button:active,.btn:active{transform:translateY(1px)}
 .empty p{color:var(--pico-muted-color);margin:.15rem auto;max-width:44ch}
 .empty code{background:#0a0e13;border:1px solid #223052;border-radius:6px;padding:.08rem .35rem}
 .heat{display:block;width:auto;max-width:100%;height:auto;margin-top:.4rem}
+.hm-ref{fill:var(--pico-muted-color);font-size:9px;font-family:inherit}
+.hm-total{color:var(--pico-muted-color);font-size:.76rem;margin:.5rem 0 0}
 .hm{fill:#161d2b}
 .hm1{fill:rgba(79,156,249,.22)}
 .hm2{fill:rgba(79,156,249,.48)}

@@ -218,44 +218,83 @@ function renderHeatmap(sessions) {
   for (const s of sessions) {
     const d = sessionDuration(s);
     if (d <= 0) continue;
-    const key = new Date(s.started_at).toISOString().slice(0, 10);
+    const key = dateKey(new Date(s.started_at));
     dayMins[key] = (dayMins[key] || 0) + Math.round(d / 60);
     any = true;
   }
   if (!any) return '';
 
-  const weeks = 13;
-  const cell = 12, gap = 3;
-  const W = weeks * (cell + gap) - gap;
-  const H = 7 * (cell + gap);
+  const weeks = 14;
+  const cell = 11, gap = 3;
+  const stride = cell + gap;
+  const LX = 30; // left gutter for weekday labels
+  const TY = 12; // top gutter for month labels
+  const W = LX + weeks * stride - gap;
+  const H = TY + 7 * stride;
+  const totalMin = Object.values(dayMins).reduce((a, b) => a + b, 0);
+
   const end = new Date();
-  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate() - (end.getDay() === 0 ? 6 : end.getDay() - 1) + 6);
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate() + (6 - end.getDay())); // Saturday of current week
   const startDay = new Date(endDay);
   startDay.setDate(startDay.getDate() - (weeks * 7 - 1));
 
   const lvl = m => m <= 0 ? 0 : m < 15 ? 1 : m < 30 ? 2 : m < 60 ? 3 : 4;
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const fmtMonth = d => d.toLocaleDateString(undefined, { month: 'short' }).replace('.', '');
+  const dayX = w => LX + w * stride;
+  const dayY = d => TY + d * stride;
 
-  let svg = '<svg class="heat" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="practice minutes per day" xmlns="http://www.w3.org/2000/svg">';
+  let svg = '<svg class="heat" viewBox="0 0 ' + W + ' ' + (H + 18) + '" role="img" aria-label="practice minutes per day" xmlns="http://www.w3.org/2000/svg">';
+
+  // Month labels in the top gutter, above the column where a new month begins
+  // (GitHub-style). One label per new month, never overlapping the grid.
+  let prevMonth = null;
+  for (let w = 0; w < weeks; w++) {
+    const weekStart = new Date(startDay);
+    weekStart.setDate(weekStart.getDate() + w * 7);
+    const first1st = new Date(weekStart);
+    first1st.setDate(1);
+    if (w === 0 || weekStart.getMonth() !== prevMonth) {
+      if (first1st >= startDay) {
+        svg += '<text x="' + dayX(w) + '" y="' + (TY - 2) + '" class="hm-ref">' + fmtMonth(weekStart) + '</text>';
+      } else if (w === 0) {
+        svg += '<text x="' + dayX(0) + '" y="' + (TY - 2) + '" class="hm-ref">' + fmtMonth(weekStart) + '</text>';
+      }
+    }
+    prevMonth = weekStart.getMonth();
+  }
+
+  // Day-of-week labels on the left border (Mon / Wed / Fri).
+  for (const d of [1, 3, 5]) {
+    svg += '<text x="' + (LX - 6) + '" y="' + (dayY(d) + cell / 2 + 3) + '" text-anchor="end" class="hm-ref">' + days[d] + '</text>';
+  }
+
   for (let w = 0; w < weeks; w++) {
     for (let d = 0; d < 7; d++) {
       const day = new Date(startDay);
       day.setDate(day.getDate() + w * 7 + d);
       if (day > end) continue;
-      const key = day.toISOString().slice(0, 10);
+      const key = dateKey(day);
       const m = dayMins[key] || 0;
       const lv = lvl(m);
-      const cx = w * (cell + gap);
-      const cy = d * (cell + gap);
       let title = '';
       if (m > 0) {
-        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         title = ' title="' + days[day.getDay()] + ' ' + day.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' — ' + m + ' min"';
       }
-      svg += '<rect x="' + cx + '" y="' + cy + '" width="' + cell + '" height="' + cell + '" rx="2" class="hm hm' + lv + '"' + title + '/>';
+      svg += '<rect x="' + dayX(w) + '" y="' + dayY(d) + '" width="' + cell + '" height="' + cell + '" rx="2" class="hm hm' + lv + '"' + title + '/>';
     }
   }
   svg += '</svg>';
+  svg += '<p class="hm-total">' + totalMin + ' min practiced in the last ' + (weeks * 7) + ' days</p>';
   return svg;
+}
+
+// dateKey renders a local YYYY-MM-DD so day bucketing matches the wall clock,
+// not UTC (which can shift a day for evening practice).
+function dateKey(d) {
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
 }
 
 // ─── Stats ──────────────────────────────────────────────────────────────────
@@ -420,7 +459,7 @@ async function renderDashboard(app) {
 
     const hm = renderHeatmap(sessions);
     if (hm) {
-      html += '<h2>Practice rhythm</h2>' + hm;
+      html += '<h2>Practice calendar</h2>' + hm;
       html += '<div class="hm-legend">less <i></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i> more</div>';
     }
   }
