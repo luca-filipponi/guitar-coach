@@ -183,6 +183,11 @@ button:active,.btn:active{transform:translateY(1px)}
 :is(input,select,button):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 .exgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.8rem;margin-top:.3rem}
+.exlist{display:flex;flex-direction:column;gap:.35rem;margin:0;padding:0;list-style:none}
+.exlist a{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;padding:.6rem .85rem;border:1px solid var(--border);border-radius:11px;background:var(--surface);text-decoration:none;color:var(--text);transition:border-color .15s ease,transform .15s ease}
+.exlist a:hover{border-color:#30303a;transform:translateX(2px)}
+.exlist .exname{font-weight:600;color:#f0f0f4}
+.exlist .desc{color:var(--muted);font-size:.82rem;flex-basis:100%}
 .topic-group{margin:0 0 1.6rem}
 .topic-group h2{border-bottom:1px solid var(--border);padding-bottom:.35rem}
 .excard{

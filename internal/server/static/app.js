@@ -412,20 +412,19 @@ async function renderExercises(app) {
     return;
   }
 
-  const pointsMap = {};
-  for (const ex of exercises) {
-    pointsMap[ex.id] = await api('exercises/' + encodeURIComponent(ex.id) + '/progress');
-  }
-
   let html = '<h1>Exercises</h1>';
-  html += '<div class="exgrid">';
+  html += '<ul class="exlist">';
   for (const ex of exercises) {
-    const pts = pointsMap[ex.id] || [];
-    html += exerciseCardHTML(ex, pts);
+    html += '<li><a href="/exercises/' + escapeHtml(ex.id) + '" data-nav>' +
+      '<span class="exname">' + escapeHtml(ex.name) + '</span>' +
+      (ex.topic ? '<span class="pill">' + escapeHtml(ex.topic) + '</span>' : '') +
+      (ex.description ? '<span class="desc">' + escapeHtml(ex.description) + '</span>' : '') +
+      '</a></li>';
   }
-  html += '</div>';
+  html += '</ul>';
 
   app.innerHTML = html;
+  wireNav(app);
 }
 
 // ─── Sessions view ──────────────────────────────────────────────────────────
