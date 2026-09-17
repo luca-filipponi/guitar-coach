@@ -175,8 +175,49 @@ func (h *handlers) exerciseProgress(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.api.ExerciseProgress(id))
 }
 
+// SessionPage mirrors the client contract for paginated session lists:
+// the page of sessions plus the total count matching the filter.
+type SessionPage struct {
+	Sessions []model.Session `json:"sessions"`
+	Total    int             `json:"total"`
+}
+
 func (h *handlers) listSessions(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.api.ListSessions())
+	q := r.URL.Query()
+	pageStr := q.Get("page")
+	perStr := q.Get("per_page")
+	date := q.Get("date")
+
+	// No pagination params: return the full list (legacy contract).
+	if pageStr == "" && perStr == "" && date == "" {
+		writeJSON(w, http.StatusOK, h.api.ListSessions())
+		return
+	}
+
+	page := 1
+	if pageStr != "" {
+		if n, err := strconv.Atoi(pageStr); err == nil && n >= 1 {
+			page = n
+		}
+	}
+	perPage := 20
+	if perStr != "" {
+		if n, err := strconv.Atoi(perStr); err == nil && n >= 1 {
+			perPage = n
+		}
+	}
+	if perPage > 50 {
+		perPage = 50
+	}
+	if date != "" {
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			http.Error(w, "date must be YYYY-MM-DD", http.StatusBadRequest)
+			return
+		}
+	}
+
+	sessions, total := h.api.ListSessionsPage(page, perPage, date)
+	writeJSON(w, http.StatusOK, SessionPage{Sessions: sessions, Total: total})
 }
 
 func (h *handlers) createSession(w http.ResponseWriter, r *http.Request) {

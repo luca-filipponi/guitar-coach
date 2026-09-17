@@ -90,8 +90,8 @@ function formatDelta(d) {
 }
 
 function deltaColor(d) {
-  if (d > 0) return '#4bd484';
-  if (d < 0) return '#f0875a';
+  if (d > 0) return '#3ddc84';
+  if (d < 0) return '#ff8c5a';
   return '#93a3bb';
 }
 
@@ -122,94 +122,12 @@ function renderSparkline(progress) {
   const gid = 'sp' + nextId();
   return '<svg class="spark" viewBox="0 0 110 26" role="img" aria-label="trend" xmlns="http://www.w3.org/2000/svg">' +
     '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1">' +
-    '<stop offset="0" stop-color="#5aa2e8" stop-opacity=".55"/>' +
-    '<stop offset="1" stop-color="#5aa2e8" stop-opacity=".02"/>' +
+    '<stop offset="0" stop-color="#7c6cf5" stop-opacity=".55"/>' +
+    '<stop offset="1" stop-color="#7c6cf5" stop-opacity=".02"/>' +
     '</linearGradient></defs>' +
     '<path d="' + fillPath(pts, H - 3) + '" fill="url(#' + gid + ')"/>' +
-    '<path d="' + smoothPath(pts) + '" fill="none" stroke="#5aa2e8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<path d="' + smoothPath(pts) + '" fill="none" stroke="#7c6cf5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>' +
     '</svg>';
-}
-
-function renderMiniChart(progress) {
-  const cp = chartPoints(progress);
-  if (!cp.length) return '<p class="hint">no history yet</p>';
-  const W = 520, H = 150;
-  const PL = 40, PR = 8, PT = 16, PB = 24;
-  const iw = W - PL - PR, ih = H - PT - PB;
-  let lo = cp[0].end, hi = cp[0].end, best = 0;
-  for (const p of cp) {
-    if (p.end < lo) lo = p.end;
-    if (p.end > hi) hi = p.end;
-    if (p.start > 0 && p.start < lo) lo = p.start;
-    if (p.start > hi) hi = p.start;
-    if (p.end > best) best = p.end;
-  }
-  let pad = Math.floor((hi - lo) / 4);
-  if (pad < 5) pad = 5;
-  lo = Math.floor((lo - pad) / 10) * 10;
-  hi = Math.floor((hi + pad) / 10) * 10;
-  if (hi <= lo) hi = lo + 10;
-  const t0 = cp[0].t, t1 = cp[cp.length - 1].t;
-  let span = t1 - t0;
-  if (span <= 0) span = 1;
-  const x = t => PL + (t - t0) / span * iw;
-  const y = v => PT + ih - (v - lo) / (hi - lo) * ih;
-  const step = hi - lo > 200 ? 50 : hi - lo > 80 ? 20 : 10;
-
-  const startPts = [], endPts = [];
-  let hasStart = false;
-  for (const p of cp) {
-    const ex = x(p.t);
-    endPts.push({ x: ex, y: y(p.end) });
-    if (p.start > 0) hasStart = true;
-    startPts.push({ x: ex, y: y(p.start > 0 ? p.start : p.end) });
-  }
-
-  const base = H - PB;
-  const endId = 'endg' + nextId();
-  const startId = 'startg' + nextId();
-  let svg = '<svg class="exchart" viewBox="0 0 520 150" role="img" aria-label="exercise BPM history" xmlns="http://www.w3.org/2000/svg">';
-  svg += '<defs>';
-  svg += '<linearGradient id="' + endId + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f0875a" stop-opacity=".32"/><stop offset="1" stop-color="#f0875a" stop-opacity=".02"/></linearGradient>';
-  svg += '<linearGradient id="' + startId + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5aa2e8" stop-opacity=".25"/><stop offset="1" stop-color="#5aa2e8" stop-opacity="0"/></linearGradient>';
-  svg += '</defs>';
-  svg += '<rect width="520" height="150" rx="10" fill="#0f141c"/>';
-
-  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
-    const yy = y(v);
-    svg += '<line x1="' + PL + '" y1="' + yy.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + yy.toFixed(1) + '" stroke="#1d2940" stroke-dasharray="3 5"/>';
-    svg += '<text x="' + (PL - 6) + '" y="' + (yy + 3).toFixed(1) + '" text-anchor="end" fill="#8fa3b8" font-size="9">' + v + '</text>';
-  }
-
-  const date0 = new Date(t0 * 1000);
-  const date1 = new Date(t1 * 1000);
-  const fmtShort = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  svg += '<text x="' + PL + '" y="' + (H - 7) + '" text-anchor="start" fill="#8fa3b8" font-size="9">' + fmtShort(date0) + '</text>';
-  svg += '<text x="' + (W - PR) + '" y="' + (H - 7) + '" text-anchor="end" fill="#8fa3b8" font-size="9">' + fmtShort(date1) + '</text>';
-
-  svg += '<path d="' + fillPath(endPts, base) + '" fill="url(#' + endId + ')"/>';
-  if (hasStart) svg += '<path d="' + fillPath(startPts, base) + '" fill="url(#' + startId + ')"/>';
-  if (hasStart) svg += '<path d="' + smoothPath(startPts) + '" fill="none" stroke="#5aa2e8" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 4"/>';
-  svg += '<path d="' + smoothPath(endPts) + '" fill="none" stroke="#f0875a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
-
-  for (const p of cp) {
-    if (p.end === best) {
-      svg += '<path d="M' + x(p.t).toFixed(1) + ' ' + (y(p.end) - 2.6).toFixed(1) + ' l2 3.4 l-4 0 z" fill="#ffd45e"/>';
-    } else {
-      svg += '<circle cx="' + x(p.t).toFixed(1) + '" cy="' + y(p.end).toFixed(1) + '" r="2.2" fill="#f0875a"/>';
-    }
-  }
-  if (cp.length === 1) {
-    svg += '<circle cx="' + x(cp[0].t).toFixed(1) + '" cy="' + y(cp[0].end).toFixed(1) + '" r="3" fill="#f0875a"/>';
-  }
-  svg += '</svg>';
-
-  const delta = cp.length >= 2 ? cp[cp.length - 1].end - cp[0].end : 0;
-  let legend = '<div class="legend"><span><i style="--c:#f0875a"></i>end bpm</span><span><i style="--c:#5aa2e8"></i>start bpm</span>';
-  if (best > 0) legend += '<span><i class="gold"></i>record ' + best + ' bpm</span>';
-  if (cp.length >= 2) legend += '<span><i class="dot" style="--c:' + deltaColor(delta) + '"></i>' + formatDelta(delta) + '</span>';
-  legend += '<span>' + cp.length + ' sets</span></div>';
-  return svg + legend;
 }
 
 function renderHeatmap(sessions) {
@@ -367,15 +285,23 @@ async function api(path) {
 
 function navigate(path) {
   history.pushState(null, '', path);
+  setActiveNav();
   route();
 }
 
 async function route() {
   const path = location.pathname;
   const app = document.getElementById('app');
+  setActiveNav();
 
   if (path === '/' || path === '') {
-    await renderDashboard(app);
+    await renderProgress(app);
+  } else if (path === '/exercises') {
+    await renderExercises(app);
+  } else if (path === '/sessions') {
+    await renderSessions(app);
+  } else if (path === '/calendar') {
+    await renderCalendar(app);
   } else {
     const exMatch = path.match(/^\/exercises\/(.+)$/);
     if (exMatch) { await renderExerciseHistory(app, exMatch[1]); return; }
@@ -386,9 +312,26 @@ async function route() {
   window.scrollTo(0, 0);
 }
 
-// ─── Dashboard ──────────────────────────────────────────────────────────────
+function setActiveNav() {
+  let key = location.pathname;
+  if (key !== '/' && key !== '/exercises' && key !== '/sessions' && key !== '/calendar') {
+    key = key.startsWith('/exercises') ? '/exercises' : key.startsWith('/sessions') ? '/sessions' : '/';
+  }
+  document.querySelectorAll('.sidebar a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === key));
+}
 
-async function renderDashboard(app) {
+// ─── Progress view ──────────────────────────────────────────────────────────
+
+function exerciseCardHTML(ex, pts) {
+  let inner = '<div class="exhead"><span class="exname">' + escapeHtml(ex.name) + '</span>';
+  if (ex.topic) inner += '<span class="pill">' + escapeHtml(ex.topic) + '</span>';
+  if (ex.description) inner += '<span class="desc" title="' + escapeHtml(ex.description) + '">' + escapeHtml(ex.description) + '</span>';
+  inner += '</div>' + renderSparkline(pts);
+  inner += '<div class="exfoot">' + deltaBadge(pts) + '<span class="setcount">' + pts.length + ' sets</span></div>';
+  return '<a class="excard" href="/exercises/' + escapeHtml(ex.id) + '" data-nav>' + inner + '</a>';
+}
+
+async function renderProgress(app) {
   app.innerHTML = '<p class="hint">Loading…</p>';
   const [exercises, sessions] = await Promise.all([api('exercises'), api('sessions')]);
 
@@ -397,57 +340,117 @@ async function renderDashboard(app) {
     return;
   }
 
-  // Compute progress points per exercise + pick hero (most practiced)
+  // Progress points per exercise
   const pointsMap = {};
-  let hero = '', bestCount = 0;
   for (const ex of exercises) {
-    const pts = await api('exercises/' + encodeURIComponent(ex.id) + '/progress');
-    pointsMap[ex.id] = pts;
-    if (pts.length > bestCount) { bestCount = pts.length; hero = ex.id; }
+    pointsMap[ex.id] = (await api('exercises/' + encodeURIComponent(ex.id) + '/progress')) || [];
   }
-  if (!hero && exercises.length) hero = exercises[0].id;
 
   // Collect unique topics
   const topicSet = new Set();
   for (const ex of exercises) if (ex.topic) topicSet.add(ex.topic);
   const topics = [...topicSet].sort();
 
-  let html = '';
-
-  // Hero chart controls
-  html += '<div class="chart-head"><h2>Progress</h2><div class="chart-controls">';
-  html += '<label>Topic: <select id="topic-filter"><option value="">All topics</option>';
-  for (const t of topics) html += '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>';
-  html += '</select></label>';
-  html += '<label>Exercise: <select id="exercise-select">';
+  // Group exercises by topic so cards read as a full list (untagged last).
+  const byTopic = new Map();
+  const untagged = [];
   for (const ex of exercises) {
-    const label = ex.topic ? escapeHtml(ex.name) + ' (' + escapeHtml(ex.topic) + ')' : escapeHtml(ex.name);
-    html += '<option value="' + ex.id + '"' + (ex.id === hero ? ' selected' : '') + '>' + label + '</option>';
+    if (!ex.topic) { untagged.push(ex); continue; }
+    if (!byTopic.has(ex.topic)) byTopic.set(ex.topic, []);
+    byTopic.get(ex.topic).push(ex);
   }
-  html += '</select></label></div></div>';
-  html += '<div id="chart"></div>';
 
-  if (!sessions.length) {
-    html += '<div class="empty"><h2>No practice logged yet</h2><p>Run <code>guitar-coach start</code> in your terminal for your first session. Entries are plotted here automatically.</p></div>';
-  } else {
-    html += renderStats(computeStats(sessions, exercises));
+  const buildGrid = list => {
+    let g = '<div class="exgrid">';
+    for (const ex of list) g += exerciseCardHTML(ex, pointsMap[ex.id] || []);
+    return g + '</div>';
+  };
 
-    html += '<h2>Exercises</h2>';
-    html += '<div class="exgrid">';
-    for (const ex of exercises) {
-      const pts = pointsMap[ex.id] || [];
-      let inner = '<div class="exhead"><span class="exname">' + escapeHtml(ex.name) + '</span>';
-      if (ex.topic) inner += '<span class="pill">' + escapeHtml(ex.topic) + '</span>';
-      if (ex.description) inner += '<span class="desc" title="' + escapeHtml(ex.description) + '">' + escapeHtml(ex.description) + '</span>';
-      inner += '</div>' + renderSparkline(pts);
-      inner += '<div class="exfoot">' + deltaBadge(pts) + '<span class="setcount">' + pts.length + ' sets</span></div>';
-      html += '<a class="excard" href="/exercises/' + escapeHtml(ex.id) + '" data-nav>' + inner + '</a>';
+  let html = '<h1>Progress</h1>';
+  html += '<div class="chart-controls" style="margin-bottom:.9rem"><label>Topic: <select id="topic-filter"><option value="">All topics</option>';
+  for (const t of topics) html += '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>';
+  html += '</select></label></div>';
+
+  const gridHost = document.createElement('div');
+  gridHost.id = 'topic-groups';
+
+  const renderGrid = topic => {
+    let h = '';
+    if (!topic) {
+      for (const t of topics) {
+        const list = byTopic.get(t);
+        if (!list || !list.length) continue;
+        h += '<div class="topic-group"><h2>' + escapeHtml(t) + '</h2>' + buildGrid(list) + '</div>';
+      }
+      if (untagged.length) h += '<div class="topic-group"><h2>Other</h2>' + buildGrid(untagged) + '</div>';
+    } else {
+      const list = byTopic.get(topic) || [];
+      if (list.length) h = '<div class="topic-group"><h2>' + escapeHtml(topic) + '</h2>' + buildGrid(list) + '</div>';
     }
-    html += '</div>';
+    gridHost.innerHTML = h;
+    wireNav(gridHost);
+  };
+  renderGrid('');
 
-    html += '<h2>Sessions</h2>';
-    html += '<table><tr><th>When</th><th>Rounds</th><th>Exercises</th><th>Length</th></tr>';
-    for (const s of sessions.slice().reverse().slice(0, 20)) {
+  if (sessions.length) html += renderStats(computeStats(sessions, exercises));
+
+  app.innerHTML = html;
+  app.appendChild(gridHost);
+
+  const filterEl = document.getElementById('topic-filter');
+  if (filterEl) filterEl.addEventListener('change', () => renderGrid(filterEl.value));
+}
+
+// ─── Exercises view ─────────────────────────────────────────────────────────
+
+async function renderExercises(app) {
+  app.innerHTML = '<p class="hint">Loading…</p>';
+  const exercises = await api('exercises');
+
+  if (!exercises.length) {
+    app.innerHTML = '<div class="empty"><h1>You haven\'t set up exercises yet</h1><p>Run <code>guitar-coach start</code> from your terminal to begin a timed session — exercises appear here once you have data.</p></div>';
+    return;
+  }
+
+  const pointsMap = {};
+  for (const ex of exercises) {
+    pointsMap[ex.id] = await api('exercises/' + encodeURIComponent(ex.id) + '/progress');
+  }
+
+  let html = '<h1>Exercises</h1>';
+  html += '<div class="exgrid">';
+  for (const ex of exercises) {
+    const pts = pointsMap[ex.id] || [];
+    html += exerciseCardHTML(ex, pts);
+  }
+  html += '</div>';
+
+  app.innerHTML = html;
+}
+
+// ─── Sessions view ──────────────────────────────────────────────────────────
+
+const SESSION_PAGE_SIZE = 20;
+
+async function renderSessions(app) {
+  app.innerHTML = '<p class="hint">Loading…</p>';
+
+  let page = 1, date = '';
+  const tableHost = document.createElement('div');
+
+  const load = async () => {
+    const params = new URLSearchParams({ page: String(page), per_page: String(SESSION_PAGE_SIZE) });
+    if (date) params.set('date', date);
+    const res = await api('sessions?' + params.toString());
+
+    if (!res.total) {
+      tableHost.innerHTML = '<div class="empty"><h1>No sessions yet</h1><p>Run <code>guitar-coach start</code> in your terminal for your first timed session. Sessions land here when ended.</p></div>';
+      return;
+    }
+
+    const pages = Math.max(1, Math.ceil(res.total / SESSION_PAGE_SIZE));
+    let html = '<table><tr><th>When</th><th>Rounds</th><th>Exercises</th><th>Length</th></tr>';
+    for (const s of res.sessions) {
       const maxRound = s.entries.reduce((m, e) => Math.max(m, e.round), 0);
       html += '<tr data-href="/sessions/' + escapeHtml(s.id) + '"><td>' +
         friendlyDay(s.started_at) + '</td><td>' +
@@ -457,44 +460,62 @@ async function renderDashboard(app) {
     }
     html += '</table>';
 
-    const hm = renderHeatmap(sessions);
-    if (hm) {
-      html += '<h2>Practice calendar</h2>' + hm;
-      html += '<div class="hm-legend">less <i></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i> more</div>';
+    if (pages > 1) {
+      html += '<div class="pager"><span>';
+      if (page > 1) html += '<a href="#" data-page="' + (page - 1) + '">\u2039 Prev</a>';
+      else html += '<span class="dim">\u2039 Prev</span>';
+      html += '</span><span>Page ' + page + ' of ' + pages + '</span><span>';
+      if (page < pages) html += '<a href="#" data-page="' + (page + 1) + '">Next \u203A</a>';
+      else html += '<span class="dim">Next \u203A</span>';
+      html += '</span></div>';
     }
+
+    tableHost.innerHTML = html;
+    tableHost.querySelectorAll('a[data-page]').forEach(a => {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        page = Number(a.dataset.page);
+        load().then(() => window.scrollTo(0, 0));
+      });
+    });
+    wireNav(tableHost);
+  };
+
+  let controls = '<h1>Sessions</h1>';
+  controls += '<div class="chart-controls" style="margin-bottom:.9rem"><label>Date: <input type="date" id="session-date"></label></div>';
+
+  app.innerHTML = controls;
+  app.appendChild(tableHost);
+
+  const dateEl = document.getElementById('session-date');
+  if (dateEl) dateEl.addEventListener('change', () => {
+    date = dateEl.value || '';
+    page = 1;
+    load();
+  });
+
+  await load();
+}
+
+// ─── Calendar view ──────────────────────────────────────────────────────────
+
+async function renderCalendar(app) {
+  app.innerHTML = '<p class="hint">Loading…</p>';
+  const sessions = await api('sessions');
+
+  if (!sessions.length) {
+    app.innerHTML = '<div class="empty"><h1>No practice logged yet</h1><p>Finish a session with <code>guitar-coach start</code> and your practice calendar fills in here.</p></div>';
+    return;
+  }
+
+  const hm = renderHeatmap(sessions);
+  let html = '<h1>Practice calendar</h1>';
+  if (hm) {
+    html += hm;
+    html += '<div class="hm-legend">less <i></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i> more</div>';
   }
 
   app.innerHTML = html;
-
-  // Wire up hero chart
-  let currentHero = hero;
-  const chartEl = document.getElementById('chart');
-  const filterEl = document.getElementById('topic-filter');
-  const selectEl = document.getElementById('exercise-select');
-
-  async function loadChart(id) {
-    const pts = await api('exercises/' + encodeURIComponent(id) + '/progress');
-    renderUPlot(pts, chartEl);
-  }
-
-  if (filterEl) filterEl.addEventListener('change', () => {
-    const topic = filterEl.value;
-    const filtered = topic ? exercises.filter(e => e.topic === topic) : exercises;
-    selectEl.innerHTML = '';
-    for (const ex of filtered) {
-      const label = ex.topic ? escapeHtml(ex.name) + ' (' + escapeHtml(ex.topic) + ')' : escapeHtml(ex.name);
-      selectEl.innerHTML += '<option value="' + ex.id + '">' + label + '</option>';
-    }
-    if (filtered.length) loadChart(filtered[0].id);
-  });
-
-  if (selectEl) {
-    selectEl.addEventListener('change', () => loadChart(selectEl.value));
-    loadChart(currentHero);
-  }
-
-  // Wire up navigation
-  wireNav(app);
 }
 
 function wireNav(root) {
@@ -511,7 +532,7 @@ function wireNav(root) {
 
 // ─── uPlot chart ────────────────────────────────────────────────────────────
 
-function renderUPlot(points, container) {
+function renderUPlot(points, container, height) {
   container.innerHTML = '';
   if (!points || !points.length) {
     container.innerHTML = '<p class="hint">No data yet for this exercise.</p>';
@@ -538,7 +559,7 @@ function renderUPlot(points, container) {
   const target = document.createElement('div');
   container.appendChild(target);
 
-  const palette = { start: '#5aa2e8', end: '#f0875a', gold: '#ffd45e' };
+  const palette = { start: '#7c6cf5', end: '#ff8c5a', gold: '#ffd166' };
 
   container.style.position = 'relative';
   const tip = document.createElement('div');
@@ -547,7 +568,7 @@ function renderUPlot(points, container) {
 
   new uPlot({
     width: target.clientWidth || 760,
-    height: 320,
+    height: height || 320,
     padding: [14, 14, 8, 8],
     scales: { x: { time: true }, y: { auto: true, range: (u, min, max) => {
       const pad = Math.max(4, Math.round((max - min) * 0.18));
@@ -589,10 +610,10 @@ function renderUPlot(points, container) {
     series: [
       { label: 'date', value: (u, ts) => ts == null ? '-' : fmtDate(ts) },
       { label: 'start bpm', stroke: palette.start, width: 1.5, spanGaps: true, dash: [2, 5],
-        fill: 'rgba(90,162,232,.08)',
+        fill: 'rgba(124,108,245,.06)',
         value: (u, raw) => raw == null ? '-' : raw + ' bpm' },
       { label: 'end bpm', stroke: palette.end, width: 2.5, spanGaps: true,
-        fill: 'rgba(240,135,90,.14)',
+        fill: 'rgba(255,140,90,.10)',
         value: (u, raw) => raw == null ? '-' : raw + ' bpm',
         points: {
           show: true,
@@ -627,7 +648,7 @@ async function renderExerciseHistory(app, id) {
   if (!progress.length) {
     html += '<p>No history yet for this exercise.</p>';
   } else {
-    html += renderMiniChart(progress);
+    html += '<div class="chart" id="exhist-chart"></div>';
     html += '<p class="hint">' + progress.length + ' recorded sets</p>';
     html += '<table><tr><th>When</th><th>Session</th><th>Round</th><th>Start</th><th>End</th><th>Notes</th></tr>';
     for (let i = progress.length - 1; i >= 0; i--) {
@@ -641,10 +662,10 @@ async function renderExerciseHistory(app, id) {
   }
 
   app.innerHTML = html;
+  const chartC = document.getElementById('exhist-chart');
+  if (chartC) renderUPlot(progress, chartC, 260);
   wireNav(app);
 }
-
-// ─── Session detail ─────────────────────────────────────────────────────────
 
 async function renderSessionDetail(app, id) {
   app.innerHTML = '<p class="hint">Loading…</p>';
@@ -701,15 +722,26 @@ async function renderSessionDetail(app, id) {
   if (uniq.length) {
     html += '<h2>Exercise history</h2>';
     html += '<p class="hint">Progress of each exercise across all its sessions, not just this one.</p>';
+    const chartIDs = [];
     for (const ex of uniq) {
       html += '<div class="exblock"><h3>' + escapeHtml(ex.name);
       if (ex.topic) html += ' <span class="pill">' + escapeHtml(ex.topic) + '</span>';
       html += '</h3>';
       if (ex.description) html += '<p class="desc">' + escapeHtml(ex.description) + '</p>';
-      const pts = await api('exercises/' + encodeURIComponent(ex.id) + '/progress');
-      html += renderMiniChart(pts);
+      const cid = 'exhist-chart-' + ex.id;
+      html += '<div class="chart" id="' + cid + '"></div>';
+      chartIDs.push({ id: ex.id, cid: cid });
       html += '</div>';
     }
+    app.innerHTML = html;
+    for (const { id, cid } of chartIDs) {
+      const pts = await api('exercises/' + encodeURIComponent(id) + '/progress');
+      const c = document.getElementById(cid);
+      if (c) renderUPlot(pts, c, 240);
+    }
+    wireNav(app);
+    wireEntryEditing(session.id);
+    return;
   }
 
   app.innerHTML = html;

@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>guitar-coach</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Oswald:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/pico.min.css">
   <link rel="stylesheet" href="/static/uplot.min.css">
   <link rel="stylesheet" href="/static/styles.css">
@@ -11,25 +14,35 @@
 <body>
   <div class="wrap">
     <header class="top">
-      <svg class="logo" viewBox='0 0 64 64' aria-hidden='true' xmlns='http://www.w3.org/2000/svg'>
-        <defs><linearGradient id='gcoat' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#4f9cf9'/><stop offset='1' stop-color='#7a5cf0'/></linearGradient></defs>
-        <path d='M32 20.6 L27.2 20.6 C23.3 20.6 20.2 22.9 19 25 C16 27.4 14.4 30.8 15.6 34.2 C16.7 36.9 18.8 38.8 21 39.9 L18.8 44.2 C14.6 47.4 13.8 53 17.6 56.2 C21.2 59.2 28 60.8 32 60.8 C36 60.8 42.8 59.2 46.4 56.2 C50.2 53 49.4 47.4 45.2 44.2 L43 39.9 C45.2 38.8 47.3 36.9 48.4 34.2 C49.6 30.8 48 27.4 45 25 C43.8 22.9 40.7 20.6 36.8 20.6 Z' fill='url(#gcoat)'/>
-        <rect x='29.8' y='7' width='4.4' height='16' rx='1.2' fill='#e8edf4'/>
-        <rect x='28.2' y='2' width='7.6' height='7' rx='1.4' fill='#232d3f' stroke='#4f9cf9' stroke-width='.6'/>
-        <g stroke='#e8edf4' stroke-width='.5' opacity='.85'>
-          <line x1='32' y1='10.5' x2='32' y2='16.5'/>
-          <line x1='30' y1='11.5' x2='30' y2='15.5'/>
-          <line x1='34' y1='11.5' x2='34' y2='15.5'/>
-          <line x1='28.8' y1='12.5' x2='28.8' y2='14.8'/>
-          <line x1='35.2' y1='12.5' x2='35.2' y2='14.8'/>
+      <div class="inner">
+        <svg class="logo" viewBox='0 0 64 64' aria-hidden='true' xmlns='http://www.w3.org/2000/svg'>
+        <defs><linearGradient id='gcoat' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#8d7ff8'/><stop offset='1' stop-color='#ff8c5a'/></linearGradient></defs>
+        <g fill='none' stroke='url(#gcoat)' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'>
+          <path d='M31 12 L12 45 L7 61 L19 54 L27 57 L37 57 L45 54 L57 61 L50 45 Z'/>
+          <path d='M28.5 15 L28.5 6 M35.5 15 L35.5 6'/>
+          <path d='M28.5 12.5 H35.5 M28.5 10 H35.5'/>
+          <path d='M27.5 6 L32 1 L37 6'/>
+          <path d='M29.5 4 l-1.5 2.5 M34.5 4 l1.5 2.5'/>
+          <path d='M22 30 L38 27 M22 27 L38 24'/>
+          <path d='M20 45 L38 42 M20 42 L38 39'/>
+          <circle cx='32' cy='51' r='1.8'/>
         </g>
       </svg>
       <div>
         <h1>guitar-coach</h1>
         <span class="tag">deliberate practice, tracked</span>
       </div>
+      </div>
     </header>
-    <div id="app"></div>
+    <div class="layout">
+      <nav class="sidebar" aria-label="Primary">
+        <a href="/" data-nav>Progress</a>
+        <a href="/exercises" data-nav>Exercises</a>
+        <a href="/sessions" data-nav>Sessions</a>
+        <a href="/calendar" data-nav>Calendar</a>
+      </nav>
+      <main id="app" class="main"></main>
+    </div>
   </div>
   <script src="/static/uplot.iife.min.js"></script>
   <script src="/static/app.js"></script>

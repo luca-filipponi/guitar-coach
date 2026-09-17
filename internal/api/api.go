@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -102,7 +103,7 @@ type ProgressPoint struct {
 }
 
 func (a *API) ExerciseProgress(exerciseID string) []ProgressPoint {
-	var pts []ProgressPoint
+	pts := make([]ProgressPoint, 0)
 	for _, s := range a.store.ListSessions() {
 		for _, e := range s.Entries {
 			if e.ExerciseID == exerciseID {
@@ -161,6 +162,36 @@ func (a *API) StartSession(req StartSessionRequest) (model.Session, error) {
 
 func (a *API) ListSessions() []model.Session {
 	return a.store.ListSessions()
+}
+
+// ListSessionsPage returns a page of sessions ordered newest-first, optionally
+// filtered to a single local calendar day (YYYY-MM-DD). It returns the page
+// and the total number of sessions matching the filter.
+func (a *API) ListSessionsPage(page, perPage int, date string) ([]model.Session, int) {
+	all := a.store.ListSessions()
+	filtered := make([]model.Session, 0, len(all))
+	for _, s := range all {
+		if date != "" {
+			day := util.ParseTime(s.StartedAt).Local().Format("2006-01-02")
+			if day != date {
+				continue
+			}
+		}
+		filtered = append(filtered, s)
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return filtered[i].StartedAt > filtered[j].StartedAt
+	})
+	total := len(filtered)
+	start := (page - 1) * perPage
+	if start > total {
+		start = total
+	}
+	end := start + perPage
+	if end > total {
+		end = total
+	}
+	return filtered[start:end], total
 }
 
 func (a *API) GetSession(id string) (model.Session, error) {
