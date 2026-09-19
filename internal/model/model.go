@@ -34,6 +34,14 @@ type Session struct {
 	Config    Config   `json:"config"`
 	Order     []string `json:"order"`
 	Entries   []Entry  `json:"entries"`
+
+	// ResumePoint records where a paused session can pick up again. ResumeOrder
+	// is the current round's exercise order exactly as it is being played
+	// (rounds beyond the first are scrambled per-round) and ResumeSeq is the
+	// number of exercises already completed in that round.
+	ResumeRound int      `json:"resume_round,omitempty"`
+	ResumeOrder []string `json:"resume_order,omitempty"`
+	ResumeSeq   int      `json:"resume_seq,omitempty"`
 }
 
 func MaxRound(entries []Entry) int {

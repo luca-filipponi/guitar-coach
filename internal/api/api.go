@@ -240,10 +240,28 @@ func (a *API) EndSession(sessionID string) (model.Session, error) {
 		return model.Session{}, err
 	}
 	sess.EndedAt = util.NowRFC()
+	sess.ResumeRound = 0
+	sess.ResumeOrder = nil
+	sess.ResumeSeq = 0
 	if err := a.store.UpdateSession(sess); err != nil {
 		return model.Session{}, err
 	}
 	return sess, nil
+}
+
+// SetResumePoint records where a running session can be picked up again: the
+// round in progress, that round's exact exercise order, and how many exercises
+// of it are already completed. It does not change the ended_at field, so the
+// session stays "in progress" until EndSession clears the point again.
+func (a *API) SetResumePoint(sessionID string, round int, order []string, seq int) error {
+	sess, err := a.GetSession(sessionID)
+	if err != nil {
+		return err
+	}
+	sess.ResumeRound = round
+	sess.ResumeOrder = append([]string(nil), order...)
+	sess.ResumeSeq = seq
+	return a.store.UpdateSession(sess)
 }
 
 func (a *API) DeleteSession(sessionID string) error {

@@ -193,10 +193,7 @@ func (sh *Shell) selectExercises(pool []model.Exercise, n int) ([]model.Exercise
 }
 
 func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
-	exerciseIDs := make([]string, 0, len(order))
-	for _, ex := range order {
-		exerciseIDs = append(exerciseIDs, ex.ID)
-	}
+	exerciseIDs := idsOf(order)
 
 	sess, err := sh.api.StartSession(api.StartSessionRequest{
 		ExerciseIDs: exerciseIDs,
@@ -220,14 +217,32 @@ func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
 	fmt.Println("\nenter start BPM before each exercise. After the set, the rest timer runs while you record end BPM and notes. Ctrl-C skips a timer or aborts a prompt.")
 
 	fmt.Println("\nwarm up before the first set:")
+	fmt.Println("press Enter when you are ready to start the warmup (Ctrl-C to skip it)")
+	if _, aborted := sh.readLineSig("start warmup when ready: "); aborted {
+		// Ctrl-C at the ready-gate skips warmup entirely, like countdown aborts
+		return nil
+	}
 	sh.countdown(sh.warmup, "Warmup -- open the hands, play lightly")
 
-	round := 1
-	cur := order
+	return sh.runRounds(sess, 1, order, 0)
+}
+
+// runRounds drives the main timed loop for an already-prepared session.
+// round is the round to start in, cur is that round's exact exercise order and
+// startSeq is how many of its exercises were already completed (0 for a fresh
+// session, >0 when resuming a paused one). A resume point is persisted after
+// every recorded exercise, so an interrupted session can be picked up again
+// later with `guitar-coach resume <session-id>`.
+func (sh *Shell) runRounds(sess model.Session, round int, cur []model.Exercise, startSeq int) error {
+	var err error
+	cfg := sess.Config
 	for {
 		fmt.Printf("\n=== round %d ===\n", round)
+
 		quit := false
-		for i, ex := range cur {
+		done := 0
+		for i := startSeq; i < len(cur); i++ {
+			ex := cur[i]
 			seq := i + 1
 			label := ex.Name
 			if ex.Topic != "" {
@@ -244,6 +259,12 @@ func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
 			}
 
 			startedAt := util.NowRFC()
+			fmt.Print("press Enter when you are ready to start the set (keys here are ignored/Ctrl-C skips): ")
+			flushStdio()
+			if _, aborted := sh.readLineSig("begin Doing countdown: "); aborted {
+				quit = true
+				break
+			}
 			sh.countdown(durationOf(cfg.DurationSec), "Doing: "+label)
 			finishedAt := util.NowRFC()
 
@@ -277,22 +298,63 @@ func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
 			if err != nil {
 				return err
 			}
+			if err := sh.api.SetResumePoint(sess.ID, round, idsOf(cur), seq); err != nil {
+				return err
+			}
 			fmt.Printf("  recorded: %s %d -> %d bpm\n", ex.Name, startBPM, endBPM)
+			done = seq
 		}
 		if quit {
-			fmt.Println("\nsession ended (quit requested).")
-			break
+			return sh.pauseOrEnd(sess, round, cur, done)
 		}
 
 		line, aborted := sh.readLineSig("\nstart another round? [Y/n]: ")
-		if aborted || strings.EqualFold(line, "n") || strings.EqualFold(line, "no") {
+		if aborted {
+			return sh.pauseOrEnd(sess, round, cur, len(cur))
+		}
+		if strings.EqualFold(line, "n") || strings.EqualFold(line, "no") {
 			break
 		}
 		cur = api.ScrambleRotation(cur)
 		sh.countdown(durationOf(cfg.BreakSec), "Break -- order scrambled, next round ready")
 		round++
+		startSeq = 0
 	}
 
+	return sh.finishSession(sess)
+}
+
+// pauseOrEnd handles an interrupted session. With recorded entries the user
+// can choose to keep the session open for a later resume; otherwise the stop
+// ends it (or discards it when nothing was recorded).
+func (sh *Shell) pauseOrEnd(sess model.Session, round int, cur []model.Exercise, completed int) error {
+	if len(sess.Entries) == 0 {
+		if err := sh.api.DeleteSession(sess.ID); err != nil {
+			return err
+		}
+		fmt.Println("\nsession discarded -- nothing was recorded")
+		return nil
+	}
+	line, aborted := sh.readLineSig("\npause this session to resume later? [Y/n]: ")
+	if !aborted && (strings.EqualFold(line, "n") || strings.EqualFold(line, "no")) {
+		return sh.finishSession(sess)
+	}
+	if err := sh.api.SetResumePoint(sess.ID, round, idsOf(cur), completed); err != nil {
+		return err
+	}
+	next := completed + 1
+	if next > len(cur) {
+		fmt.Printf("\nsession %s paused -- round %d complete\n", sess.ID, round)
+	} else {
+		fmt.Printf("\nsession %s paused at round %d, exercise %d/%d\n", sess.ID, round, next, len(cur))
+	}
+	fmt.Printf("resume anytime with:\n  guitar-coach resume %s\n", sess.ID)
+	return nil
+}
+
+// finishSession ends a session: discarded when empty, ended and summarised
+// otherwise, with an optional open-in-browser prompt.
+func (sh *Shell) finishSession(sess model.Session) error {
 	if len(sess.Entries) == 0 {
 		if err := sh.api.DeleteSession(sess.ID); err != nil {
 			return err
@@ -301,6 +363,7 @@ func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
 		return nil
 	}
 
+	var err error
 	sess, err = sh.api.EndSession(sess.ID)
 	if err != nil {
 		return err
@@ -318,6 +381,14 @@ func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
 		}
 	}
 	return nil
+}
+
+func idsOf(exs []model.Exercise) []string {
+	ids := make([]string, 0, len(exs))
+	for _, ex := range exs {
+		ids = append(ids, ex.ID)
+	}
+	return ids
 }
 
 func durationOf(sec int) time.Duration {

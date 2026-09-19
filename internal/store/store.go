@@ -55,11 +55,62 @@ func Open(dir string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("applying schema: %w", err)
 	}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrating schema: %w", err)
+	}
 	if err := s.migrateFromJSON(dir); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrating legacy JSON data: %w", err)
 	}
 	return s, nil
+}
+
+// migrate adds columns introduced after the initial release to databases that
+// already existed with the old schema (schema.sql only creates tables, it does
+// not add columns to an existing sessions table).
+func (s *Store) migrate() error {
+	cols, err := s.tableColumns("sessions")
+	if err != nil {
+		return err
+	}
+	add := []struct {
+		name string
+		ddl  string
+	}{
+		{"resume_round", "INTEGER NOT NULL DEFAULT 0"},
+		{"resume_order_json", "TEXT NOT NULL DEFAULT '[]'"},
+		{"resume_seq", "INTEGER NOT NULL DEFAULT 0"},
+	}
+	for _, c := range add {
+		if cols[c.name] {
+			continue
+		}
+		if _, err := s.db.Exec(`ALTER TABLE sessions ADD COLUMN ` + c.name + ` ` + c.ddl); err != nil {
+			return fmt.Errorf("adding column %s: %w", c.name, err)
+		}
+	}
+	return nil
+}
+
+// tableColumns returns the set of column names currently present on a table.
+func (s *Store) tableColumns(table string) (map[string]bool, error) {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return nil, err
+		}
+		out[name] = true
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) Dir() string {
@@ -209,20 +260,28 @@ func (s *Store) ListSessions() []model.Session {
 
 func (s *Store) listSessions() []model.Session {
 	rows, err := s.db.Query(`SELECT id, started_at, ended_at, order_json,
-		exercises_per_round, duration_sec, rest_sec, break_sec FROM sessions ORDER BY rowid`)
+		exercises_per_round, duration_sec, rest_sec, break_sec,
+		resume_round, resume_order_json, resume_seq FROM sessions ORDER BY rowid`)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
 	var out []model.Session
 	for rows.Next() {
-		var sess model.Session
-		var orderJSON string
+		var (
+			sess            model.Session
+			orderJSON       string
+			resumeOrderJSON string
+		)
 		if err := rows.Scan(&sess.ID, &sess.StartedAt, &sess.EndedAt, &orderJSON,
-			&sess.Config.ExercisesPerRound, &sess.Config.DurationSec, &sess.Config.RestSec, &sess.Config.BreakSec); err != nil {
+			&sess.Config.ExercisesPerRound, &sess.Config.DurationSec, &sess.Config.RestSec, &sess.Config.BreakSec,
+			&sess.ResumeRound, &resumeOrderJSON, &sess.ResumeSeq); err != nil {
 			return nil
 		}
 		if err := json.Unmarshal([]byte(orderJSON), &sess.Order); err != nil {
+			return nil
+		}
+		if err := json.Unmarshal([]byte(resumeOrderJSON), &sess.ResumeOrder); err != nil {
 			return nil
 		}
 		out = append(out, sess)
@@ -260,16 +319,25 @@ func (s *Store) listEntries() map[string][]model.Entry {
 
 func (s *Store) SessionByID(id string) *model.Session {
 	row := s.db.QueryRow(`SELECT id, started_at, ended_at, order_json,
-		exercises_per_round, duration_sec, rest_sec, break_sec FROM sessions WHERE id = ?`, id)
-	var sess model.Session
-	var orderJSON string
+		exercises_per_round, duration_sec, rest_sec, break_sec,
+		resume_round, resume_order_json, resume_seq FROM sessions WHERE id = ?`, id)
+	var (
+		sess            model.Session
+		orderJSON       string
+		resumeOrderJSON string
+	)
 	err := row.Scan(&sess.ID, &sess.StartedAt, &sess.EndedAt, &orderJSON,
-		&sess.Config.ExercisesPerRound, &sess.Config.DurationSec, &sess.Config.RestSec, &sess.Config.BreakSec)
+		&sess.Config.ExercisesPerRound, &sess.Config.DurationSec, &sess.Config.RestSec, &sess.Config.BreakSec,
+		&sess.ResumeRound, &resumeOrderJSON, &sess.ResumeSeq)
 	if err != nil {
 		return nil
 	}
 	sess.Order = []string{}
 	if err := json.Unmarshal([]byte(orderJSON), &sess.Order); err != nil {
+		return nil
+	}
+	sess.ResumeOrder = []string{}
+	if err := json.Unmarshal([]byte(resumeOrderJSON), &sess.ResumeOrder); err != nil {
 		return nil
 	}
 	sess.Entries = s.entriesFor(id)
@@ -320,9 +388,11 @@ func (s *Store) UpdateSession(ss model.Session) error {
 	}
 	defer tx.Rollback()
 	res, err := tx.Exec(`UPDATE sessions SET started_at = ?, ended_at = ?, order_json = ?,
-		exercises_per_round = ?, duration_sec = ?, rest_sec = ?, break_sec = ? WHERE id = ?`,
+		exercises_per_round = ?, duration_sec = ?, rest_sec = ?, break_sec = ?,
+		resume_round = ?, resume_order_json = ?, resume_seq = ? WHERE id = ?`,
 		ss.StartedAt, ss.EndedAt, mustOrderJSON(ss.Order),
-		ss.Config.ExercisesPerRound, ss.Config.DurationSec, ss.Config.RestSec, ss.Config.BreakSec, ss.ID)
+		ss.Config.ExercisesPerRound, ss.Config.DurationSec, ss.Config.RestSec, ss.Config.BreakSec,
+		ss.ResumeRound, mustOrderJSON(ss.ResumeOrder), ss.ResumeSeq, ss.ID)
 	if err != nil {
 		return err
 	}
@@ -388,10 +458,12 @@ func (s *Store) importSessions(sess []model.Session) error {
 
 func insertSession(tx *sql.Tx, ss model.Session) error {
 	_, err := tx.Exec(`INSERT INTO sessions (id, started_at, ended_at, order_json,
-			exercises_per_round, duration_sec, rest_sec, break_sec) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			exercises_per_round, duration_sec, rest_sec, break_sec,
+			resume_round, resume_order_json, resume_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO NOTHING`,
 		ss.ID, ss.StartedAt, ss.EndedAt, mustOrderJSON(ss.Order),
-		ss.Config.ExercisesPerRound, ss.Config.DurationSec, ss.Config.RestSec, ss.Config.BreakSec)
+		ss.Config.ExercisesPerRound, ss.Config.DurationSec, ss.Config.RestSec, ss.Config.BreakSec,
+		ss.ResumeRound, mustOrderJSON(ss.ResumeOrder), ss.ResumeSeq)
 	if err != nil {
 		return err
 	}

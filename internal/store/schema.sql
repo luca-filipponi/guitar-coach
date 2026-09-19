@@ -1,9 +1,9 @@
--- guitar-coach database schema (v1)
+-- guitar-coach database schema (v2)
 -- One SQLite file per data dir (guitar-coach.db). WAL journal is enabled at
 -- open so a long-running `serve` and a separate `start` process can read and
 -- write concurrently without stale views.
 
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 
 CREATE TABLE IF NOT EXISTS exercises (
     id          TEXT PRIMARY KEY,
@@ -21,7 +21,12 @@ CREATE TABLE IF NOT EXISTS sessions (
     exercises_per_round INTEGER NOT NULL,
     duration_sec        INTEGER NOT NULL,
     rest_sec            INTEGER NOT NULL,
-    break_sec           INTEGER NOT NULL
+    break_sec           INTEGER NOT NULL,
+    -- pause/resume checkpoint: current round, that round's exact exercise
+    -- order, and how many exercises of it were already completed.
+    resume_round        INTEGER NOT NULL DEFAULT 0,
+    resume_order_json   TEXT NOT NULL DEFAULT '[]',
+    resume_seq          INTEGER NOT NULL DEFAULT 0
 );
 
 -- Entries are addressed positionally within a session (the ledger order shown

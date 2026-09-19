@@ -91,7 +91,7 @@ function formatDelta(d) {
 
 function deltaColor(d) {
   if (d > 0) return '#3ddc84';
-  if (d < 0) return '#ff8c5a';
+  if (d < 0) return '#e8996a';
   return '#93a3bb';
 }
 
@@ -122,11 +122,11 @@ function renderSparkline(progress) {
   const gid = 'sp' + nextId();
   return '<svg class="spark" viewBox="0 0 110 26" role="img" aria-label="trend" xmlns="http://www.w3.org/2000/svg">' +
     '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1">' +
-    '<stop offset="0" stop-color="#7c6cf5" stop-opacity=".55"/>' +
-    '<stop offset="1" stop-color="#7c6cf5" stop-opacity=".02"/>' +
+    '<stop offset="0" stop-color="#eba07e" stop-opacity=".55"/>' +
+    '<stop offset="1" stop-color="#eba07e" stop-opacity=".02"/>' +
     '</linearGradient></defs>' +
     '<path d="' + fillPath(pts, H - 3) + '" fill="url(#' + gid + ')"/>' +
-    '<path d="' + smoothPath(pts) + '" fill="none" stroke="#7c6cf5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<path d="' + smoothPath(pts) + '" fill="none" stroke="#eba07e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>' +
     '</svg>';
 }
 
@@ -297,7 +297,7 @@ async function route() {
   if (path === '/' || path === '') {
     await renderProgress(app);
   } else if (path === '/exercises') {
-    await renderExercises(app);
+    await renderExercises(app, new URLSearchParams(location.search).get('topic') || '');
   } else if (path === '/sessions') {
     await renderSessions(app);
   } else if (path === '/calendar') {
@@ -313,11 +313,25 @@ async function route() {
 }
 
 function setActiveNav() {
-  let key = location.pathname;
+  const path = location.pathname;
+  const topic = new URLSearchParams(location.search).get('topic') || '';
+  let key = path;
   if (key !== '/' && key !== '/exercises' && key !== '/sessions' && key !== '/calendar') {
     key = key.startsWith('/exercises') ? '/exercises' : key.startsWith('/sessions') ? '/sessions' : '/';
   }
-  document.querySelectorAll('.sidebar a').forEach(a => a.classList.toggle('active', a.getAttribute('href') === key));
+  document.querySelectorAll('.sidebar a').forEach(a => {
+    const sub = a.hasAttribute('data-topic');
+    let on;
+    if (sub) {
+      const t = a.getAttribute('data-topic') || '';
+      on = key === '/exercises' && (t === 'all' ? topic === '' : t === topic);
+    } else {
+      on = a.getAttribute('href') === key;
+    }
+    a.classList.toggle('active', on);
+  });
+  const group = document.getElementById('navg-exercises');
+  if (group) group.classList.toggle('open', key === '/exercises');
 }
 
 // ─── Progress view ──────────────────────────────────────────────────────────
@@ -329,6 +343,49 @@ function exerciseCardHTML(ex, pts) {
   inner += '</div>' + renderSparkline(pts);
   inner += '<div class="exfoot">' + deltaBadge(pts) + '<span class="setcount">' + pts.length + ' sets</span></div>';
   return '<a class="excard" href="/exercises/' + escapeHtml(ex.id) + '" data-nav>' + inner + '</a>';
+}
+
+// Group exercises by topic so long lists read as a full catalog (untagged last).
+function groupByTopic(exercises) {
+  const topicSet = new Set();
+  const byTopic = new Map();
+  const untagged = [];
+  for (const ex of exercises) {
+    if (!ex.topic) { untagged.push(ex); continue; }
+    topicSet.add(ex.topic);
+    if (!byTopic.has(ex.topic)) byTopic.set(ex.topic, []);
+    byTopic.get(ex.topic).push(ex);
+  }
+  return { topics: [...topicSet].sort(), byTopic, untagged };
+}
+
+function topicFilterHTML(topics) {
+  let html = '<div class="chart-controls" style="margin-bottom:.9rem"><label>Topic: <select id="topic-filter"><option value="">All topics</option>';
+  for (const t of topics) html += '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>';
+  html += '</select></label></div>';
+  return html;
+}
+
+// Renders one topic group (or all) into gridHost using the passed builder.
+// builder(topicName, list) returns the HTML for a single group's list of exercises.
+function topicGroupsHTML(topics, byTopic, untagged, topic, builder) {
+  let h = '';
+  if (!topic) {
+    for (const t of topics) {
+      const list = byTopic.get(t);
+      if (!list || !list.length) continue;
+      h += '<div class="topic-group"><h2>' + escapeHtml(t) + '</h2>' + builder(list) + '</div>';
+    }
+    if (untagged.length) h += '<div class="topic-group"><h2>Other</h2>' + builder(untagged) + '</div>';
+  } else {
+    const list = byTopic.get(topic) || [];
+    if (list.length) h = '<div class="topic-group"><h2>' + escapeHtml(topic) + '</h2>' + builder(list) + '</div>';
+  }
+  return h;
+}
+
+function wireTopicFilter(filterEl, onChange) {
+  if (filterEl) filterEl.addEventListener('change', () => onChange(filterEl.value));
 }
 
 async function renderProgress(app) {
@@ -346,19 +403,7 @@ async function renderProgress(app) {
     pointsMap[ex.id] = (await api('exercises/' + encodeURIComponent(ex.id) + '/progress')) || [];
   }
 
-  // Collect unique topics
-  const topicSet = new Set();
-  for (const ex of exercises) if (ex.topic) topicSet.add(ex.topic);
-  const topics = [...topicSet].sort();
-
-  // Group exercises by topic so cards read as a full list (untagged last).
-  const byTopic = new Map();
-  const untagged = [];
-  for (const ex of exercises) {
-    if (!ex.topic) { untagged.push(ex); continue; }
-    if (!byTopic.has(ex.topic)) byTopic.set(ex.topic, []);
-    byTopic.get(ex.topic).push(ex);
-  }
+  const { topics, byTopic, untagged } = groupByTopic(exercises);
 
   const buildGrid = list => {
     let g = '<div class="exgrid">';
@@ -367,27 +412,13 @@ async function renderProgress(app) {
   };
 
   let html = '<h1>Progress</h1>';
-  html += '<div class="chart-controls" style="margin-bottom:.9rem"><label>Topic: <select id="topic-filter"><option value="">All topics</option>';
-  for (const t of topics) html += '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>';
-  html += '</select></label></div>';
+  html += topicFilterHTML(topics);
 
   const gridHost = document.createElement('div');
   gridHost.id = 'topic-groups';
 
   const renderGrid = topic => {
-    let h = '';
-    if (!topic) {
-      for (const t of topics) {
-        const list = byTopic.get(t);
-        if (!list || !list.length) continue;
-        h += '<div class="topic-group"><h2>' + escapeHtml(t) + '</h2>' + buildGrid(list) + '</div>';
-      }
-      if (untagged.length) h += '<div class="topic-group"><h2>Other</h2>' + buildGrid(untagged) + '</div>';
-    } else {
-      const list = byTopic.get(topic) || [];
-      if (list.length) h = '<div class="topic-group"><h2>' + escapeHtml(topic) + '</h2>' + buildGrid(list) + '</div>';
-    }
-    gridHost.innerHTML = h;
+    gridHost.innerHTML = topicGroupsHTML(topics, byTopic, untagged, topic, buildGrid);
     wireNav(gridHost);
   };
   renderGrid('');
@@ -403,7 +434,30 @@ async function renderProgress(app) {
 
 // ─── Exercises view ─────────────────────────────────────────────────────────
 
-async function renderExercises(app) {
+// Populates the sidebar submenu under Exercises with one link per topic.
+function buildTopicSubnav(exercises) {
+  const host = document.getElementById('subnav-exercises');
+  if (!host) return;
+  const { topics, byTopic, untagged } = groupByTopic(exercises);
+  let html = '<div class="subnav-inner"><a href="/exercises" data-nav data-topic="all">All topics (' + exercises.length + ')</a>';
+  for (const t of topics) {
+    html += '<a href="/exercises?topic=' + encodeURIComponent(t) + '" data-nav data-topic="' + escapeHtml(t) + '">' +
+      escapeHtml(t) + ' (' + (byTopic.get(t) || []).length + ')</a>';
+  }
+  if (untagged.length) html += '<a href="/exercises?topic=untagged" data-nav data-topic="untagged">Other (' + untagged.length + ')</a>';
+  html += '</div>';
+  host.innerHTML = html;
+}
+
+function exerciseListRow(ex, topicFiltered) {
+  return '<a href="/exercises/' + escapeHtml(ex.id) + '" data-nav>' +
+    '<span class="exname">' + escapeHtml(ex.name) + '</span>' +
+    (ex.topic && !topicFiltered ? '<span class="pill">' + escapeHtml(ex.topic) + '</span>' : '') +
+    (ex.description ? '<span class="desc">' + escapeHtml(ex.description) + '</span>' : '') +
+    '</a>';
+}
+
+async function renderExercises(app, topic) {
   app.innerHTML = '<p class="hint">Loading…</p>';
   const exercises = await api('exercises');
 
@@ -412,19 +466,33 @@ async function renderExercises(app) {
     return;
   }
 
+  buildTopicSubnav(exercises);
+  const { topics, byTopic, untagged } = groupByTopic(exercises);
+  const topicFiltered = topic === 'untagged' || (topic && byTopic.has(topic));
+
+  const buildList = list => {
+    let g = '<ul class="exlist">';
+    for (const ex of list) g += '<li>' + exerciseListRow(ex, topicFiltered) + '</li>';
+    return g + '</ul>';
+  };
+
+  const gridHost = document.createElement('div');
   let html = '<h1>Exercises</h1>';
-  html += '<ul class="exlist">';
-  for (const ex of exercises) {
-    html += '<li><a href="/exercises/' + escapeHtml(ex.id) + '" data-nav>' +
-      '<span class="exname">' + escapeHtml(ex.name) + '</span>' +
-      (ex.topic ? '<span class="pill">' + escapeHtml(ex.topic) + '</span>' : '') +
-      (ex.description ? '<span class="desc">' + escapeHtml(ex.description) + '</span>' : '') +
-      '</a></li>';
+  if (topicFiltered) {
+    const label = topic === 'untagged' ? 'Other' : topic;
+    html += '<p class="filter-note">Showing <span class="pill">' + escapeHtml(label) + '</span> ' +
+      '<a href="/exercises" data-nav>clear filter \u00D7</a></p>';
+    const list = topic === 'untagged' ? untagged : byTopic.get(topic);
+    gridHost.innerHTML = '<div class="topic-group"><h2>' + escapeHtml(label) +
+      '</h2>' + buildList(list) + '</div>';
+  } else {
+    gridHost.innerHTML = topicGroupsHTML(topics, byTopic, untagged, '', buildList);
   }
-  html += '</ul>';
+  wireNav(gridHost);
 
   app.innerHTML = html;
-  wireNav(app);
+  app.appendChild(gridHost);
+  setActiveNav();
 }
 
 // ─── Sessions view ──────────────────────────────────────────────────────────
@@ -558,7 +626,7 @@ function renderUPlot(points, container, height) {
   const target = document.createElement('div');
   container.appendChild(target);
 
-  const palette = { start: '#7c6cf5', end: '#ff8c5a', gold: '#ffd166' };
+  const palette = { start: '#eba07e', end: '#e8996a', gold: '#e2bd7c' };
 
   container.style.position = 'relative';
   const tip = document.createElement('div');
@@ -576,12 +644,12 @@ function renderUPlot(points, container, height) {
     legend: { show: true },
     cursor: { x: true, y: false, stroke: 'rgba(255,255,255,.35)', width: 1, dash: [4, 4] },
     axes: [
-      { stroke: '#9fb2c6', font: '11px system-ui', size: 26,
-        grid: { stroke: 'rgba(120,145,175,.10)', width: 1, dash: [3, 5] },
-        ticks: { stroke: '#31404f' } },
-      { stroke: '#9fb2c6', font: '11px system-ui', size: 26, label: 'BPM',
-        grid: { stroke: 'rgba(120,145,175,.10)', width: 1, dash: [3, 5] },
-        ticks: { stroke: '#31404f' } }
+      { stroke: '#8b857b', font: '11px system-ui', size: 26,
+        grid: { stroke: 'rgba(217,123,86,.09)', width: 1, dash: [3, 5] },
+        ticks: { stroke: '#403c44' } },
+      { stroke: '#8b857b', font: '11px system-ui', size: 26, label: 'BPM',
+        grid: { stroke: 'rgba(217,123,86,.09)', width: 1, dash: [3, 5] },
+        ticks: { stroke: '#403c44' } }
     ],
     hooks: {
       setCursor: [u => {
@@ -609,16 +677,16 @@ function renderUPlot(points, container, height) {
     series: [
       { label: 'date', value: (u, ts) => ts == null ? '-' : fmtDate(ts) },
       { label: 'start bpm', stroke: palette.start, width: 1.5, spanGaps: true, dash: [2, 5],
-        fill: 'rgba(124,108,245,.06)',
+        fill: 'rgba(217,123,86,.06)',
         value: (u, raw) => raw == null ? '-' : raw + ' bpm' },
       { label: 'end bpm', stroke: palette.end, width: 2.5, spanGaps: true,
-        fill: 'rgba(255,140,90,.10)',
+        fill: 'rgba(232,153,106,.10)',
         value: (u, raw) => raw == null ? '-' : raw + ' bpm',
         points: {
           show: true,
           size: (u, i) => pr[i] ? 7 : 4,
           stroke: (u, i) => pr[i] ? palette.gold : palette.end,
-          fill: (u, i) => pr[i] ? 'rgba(255,212,94,.25)' : '#0b0f14'
+          fill: (u, i) => pr[i] ? 'rgba(255,212,94,.25)' : '#1a1920'
         } }
     ]
   }, data, target);
@@ -779,6 +847,17 @@ function wireEntryEditing(sessionId) {
 
 window.addEventListener('popstate', route);
 document.addEventListener('click', e => {
+  const parent = e.target.closest('.nav-parent');
+  if (parent) {
+    e.preventDefault();
+    const group = document.getElementById('navg-exercises');
+    if (location.pathname === '/exercises') {
+      group.classList.toggle('open');
+    } else {
+      navigate('/exercises');
+    }
+    return;
+  }
   const a = e.target.closest('a[data-nav]');
   if (a) { e.preventDefault(); navigate(a.getAttribute('href')); }
 });

@@ -2,3 +2,7 @@ bin/
 .DS_Store
 *.tmp
 guitar-coach.db*
+
+# throwaway data dirs used by `make dev` and `make test-session`; never commit
+.dev-data/
+.test-data/

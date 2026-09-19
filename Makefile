@@ -4,6 +4,28 @@ LDFLAGS := -X github.com/luca-filipponi/guitar-coach/internal/cli.version=$(VERS
 DEV_DIR := .dev-data
 DEV_PORT ?= 8080
 
+# test-session runs a short, silent practice session against a throwaway data
+# dir (TEST_DIR), so nothing is recorded into your real ~/.guitar-coach store.
+# It is meant for exercising the interactive flow (prompts, countdowns, rest)
+# on a real terminal. End the last prompt with "n" to finish; the temp dir and
+# its sessions are discarded with `make test-session-clean`.
+TEST_DIR := .test-data
+
+.PHONY: test-session test-session-clean
+
+test-session: build
+	@set -e; \
+	if [ ! -f "$(TEST_DIR)/guitar-coach.db" ]; then \
+		GUITAR_COACH_DIR=$(TEST_DIR) ./bin/$(BINARY) seed >/dev/null && \
+		echo "seeded test exercises into $(TEST_DIR)"; \
+	fi
+	@GUITAR_COACH_DIR=$(TEST_DIR) ./bin/$(BINARY) start \
+		--exercises 3 --duration 1m --rest 30s --break 1m \
+		--warmup 2m --alarm-volume 0 --alarm-count 1
+
+test-session-clean:
+	rm -rf $(TEST_DIR)
+
 .PHONY: build run dev dev-stop dev-clean test vet fmt clean
 
 build:

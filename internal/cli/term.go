@@ -63,6 +63,9 @@ func (sh *Shell) readPrompt(label string, opts promptOpts) (string, bool) {
 		return strings.TrimSpace(line), false
 	}
 	defer restore()
+	// Keys typed while a timer was running are still queued in the tty
+	// buffer; drain them so they can not auto-answer this fresh prompt.
+	flushStdio()
 	return sh.editLine(label, opts)
 }
 
@@ -105,11 +108,11 @@ func (sh *Shell) editLine(label string, opts promptOpts) (string, bool) {
 	prevRows := 0
 
 	// rowsOccupied returns how many terminal rows the status+prompt block
-	// occupies, counting a wrapped prompt line.
+	// occupies, counting wrapped status and prompt lines.
 	rowsOccupied := func(st string) int {
 		rows := 0
 		if showStatus && st != "" {
-			rows++
+			rows += (utf8.RuneCountInString(st) + cols - 1) / cols
 		}
 		n := utf8.RuneCountInString(label) + len(buf)
 		if n == 0 {
@@ -118,30 +121,29 @@ func (sh *Shell) editLine(label string, opts promptOpts) (string, bool) {
 		return rows + (n+cols-1)/cols
 	}
 
-	// redraw repaints the status and prompt lines. The previous block is
-	// erased by moving up over its rows and clearing each one, so wrapped
-	// prompt text never leaves residue (no stray characters or spacing).
+	// eraseBlock clears the rows of the block already on screen. The cursor
+	// sits at the end of the prompt line, which is the block's last row, so we
+	// clear from that row upward and end on the block's top row at column 0.
+	eraseBlock := func() {
+		if prevRows <= 0 {
+			return
+		}
+		for i := 0; i < prevRows; i++ {
+			fmt.Print("\r\x1b[2K")
+			if i < prevRows-1 {
+				fmt.Print("\x1b[A")
+			}
+		}
+	}
+
+	// redraw repaints the status and prompt lines after erasing the previous
+	// block in place, so nothing above or beside it is ever touched.
 	redraw := func() {
 		st := ""
 		if showStatus && opts.status != nil {
 			st = opts.status()
 		}
-		if prevRows > 0 {
-			if prevRows > 1 {
-				fmt.Printf("\x1b[%dA", prevRows)
-			} else {
-				fmt.Print("\x1b[1A")
-			}
-			for i := 0; i < prevRows; i++ {
-				fmt.Print("\r\x1b[2K")
-				if i < prevRows-1 {
-					fmt.Print("\x1b[B")
-				}
-			}
-			if prevRows > 1 {
-				fmt.Printf("\x1b[%dA", prevRows-1)
-			}
-		}
+		eraseBlock()
 		if st != "" {
 			fmt.Print(st)
 			fmt.Print("\x1b[1E")
@@ -173,16 +175,9 @@ func (sh *Shell) editLine(label string, opts promptOpts) (string, bool) {
 		if prevRows <= 0 {
 			return
 		}
+		eraseBlock()
 		if prevRows > 1 {
-			fmt.Printf("\x1b[%dA", prevRows)
-		} else {
-			fmt.Print("\x1b[1A")
-		}
-		for i := 0; i < prevRows; i++ {
-			fmt.Print("\r\x1b[2K")
-			if i < prevRows-1 {
-				fmt.Print("\x1b[B")
-			}
+			fmt.Printf("\x1b[%dB", prevRows-1)
 		}
 	}
 
@@ -297,7 +292,9 @@ func handleEscape(state int, c byte, seq *[]byte, opts promptOpts, buf *[]rune, 
 			return 2, false
 		}
 		if c == 0x7f || c == 0x08 { // Alt/Option+Backspace (ESC DEL / ESC BS)
-			*pos = deleteWordBackward(*buf, *pos)
+			newPos := deleteWordBackward(*buf, *pos)
+			*buf = append((*buf)[:newPos], (*buf)[*pos:]...)
+			*pos = newPos
 			return 0, true
 		}
 		return 0, false // ESC followed by something else: ignore the whole thing
