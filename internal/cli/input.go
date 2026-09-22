@@ -3,16 +3,13 @@ package cli
 import (
 	"fmt"
 	"strconv"
-	"sync"
-	"time"
 
 	"github.com/luca-filipponi/guitar-coach/internal/util"
 )
 
 // promptBPM asks for a BPM value, pre-filling the suggested value so the
 // user can accept it with Enter or nudge it with the up/down arrows. An
-// emptied answer also accepts the suggestion. opts can carry the live
-// rest-clock status line.
+// emptied answer also accepts the suggestion.
 func (sh *Shell) promptBPM(label string, suggest int, opts ...promptOpts) (int, bool) {
 	opt := promptOpts{}
 	if len(opts) > 0 {
@@ -35,89 +32,6 @@ func (sh *Shell) promptBPM(label string, suggest int, opts ...promptOpts) (int, 
 			return n, false
 		}
 		fmt.Println("  please enter a number (or empty to skip)")
-	}
-}
-
-func (sh *Shell) countdown(dur time.Duration, label string) bool {
-	end := time.Now().Add(dur)
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	fmt.Printf("  %s\n", label)
-	for {
-		remaining := time.Until(end)
-		if remaining <= 0 {
-			fmt.Printf("\r\033[K  %s -- done\n", label)
-			sh.playAlarm()
-			return false
-		}
-		fmt.Printf("\r\033[K  %s -- %s remaining (Ctrl-C to skip)", label, util.FormatDuration(remaining))
-		select {
-		case <-ticker.C:
-		case <-sh.sig:
-			fmt.Printf("\r\033[K  %s -- skipped\n", label)
-			sh.playAlarm()
-			return true
-		}
-	}
-}
-
-// restClock drives the rest timer. It keeps the end time so the prompts can
-// show a live "rest X left" line, and a done channel that fires when the rest
-// elapses (or the user skips it). done is closed (never sent to) so waiters
-// never lose the wakeup.
-type restClock struct {
-	end   time.Time
-	label string
-	done  chan struct{}
-	once  sync.Once
-}
-
-func (sh *Shell) startRest(label string, dur time.Duration) *restClock {
-	rc := &restClock{end: time.Now().Add(dur), label: label, done: make(chan struct{})}
-	go func() {
-		select {
-		case <-time.After(dur):
-			sh.playAlarm()
-			rc.signal()
-		case <-rc.done:
-		}
-	}()
-	return rc
-}
-
-// signal marks the rest as done (from the timer or a skip); the first call
-// closes done, waking every waiter.
-func (rc *restClock) signal() {
-	rc.once.Do(func() { close(rc.done) })
-}
-
-// statusText is fed to the prompt editor's status line so the user sees the
-// rest time ticking while they record BPM and notes.
-func (rc *restClock) statusText() string {
-	rem := time.Until(rc.end)
-	if rem <= 0 {
-		return fmt.Sprintf("rest over for %s", rc.label)
-	}
-	return fmt.Sprintf("%s: rest %s left", rc.label, util.FormatDuration(rem))
-}
-
-// waitRest blocks until the rest elapses (or Ctrl-C skips it), redrawing a
-// live countdown on a single line.
-func (sh *Shell) waitRest(rc *restClock) {
-	for {
-		select {
-		case <-rc.done:
-			fmt.Print("\r\033[K")
-			return
-		case <-time.After(time.Second):
-			fmt.Printf("\r\033[K  %s (Ctrl-C to skip)", rc.statusText())
-			select {
-			case <-sh.sig:
-				rc.signal()
-			default:
-			}
-		}
 	}
 }
 

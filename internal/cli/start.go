@@ -11,6 +11,7 @@ import (
 
 	"github.com/luca-filipponi/guitar-coach/internal/api"
 	"github.com/luca-filipponi/guitar-coach/internal/model"
+	"github.com/luca-filipponi/guitar-coach/internal/tui"
 	"github.com/luca-filipponi/guitar-coach/internal/util"
 )
 
@@ -125,8 +126,9 @@ func (sh *Shell) chooseExercises(pool []model.Exercise, n int, pick string, sel 
 	}
 	if !freshRound {
 		if last := sh.lastRotation(); len(last) > 0 {
-			line, aborted := sh.readLineSig(fmt.Sprintf("keep previous rotation (%d exercises)? [Y/n]: ", len(last)))
-			if !aborted && !strings.EqualFold(line, "n") && !strings.EqualFold(line, "no") {
+			prevRows := sessionRowsOf(last, -1, nil)
+			keep, aborted := tui.RunY(fmt.Sprintf("keep previous rotation (%d exercises)?", len(last)), prevRows)
+			if !aborted && !strings.EqualFold(keep, "n") && !strings.EqualFold(keep, "no") {
 				fmt.Printf("using previous rotation\n")
 				return last, nil
 			}
@@ -154,15 +156,15 @@ func (sh *Shell) lastRotation() []model.Exercise {
 }
 
 func (sh *Shell) selectExercises(pool []model.Exercise, n int) ([]model.Exercise, error) {
-	fmt.Println("\navailable exercises:")
-	for i, ex := range pool {
+	items := make([]string, 0, len(pool))
+	for _, ex := range pool {
 		name := ex.Name
 		if ex.Topic != "" {
 			name = fmt.Sprintf("%s (%s)", ex.Name, ex.Topic)
 		}
-		fmt.Printf("  %2d. %s\n", i+1, name)
+		items = append(items, name)
 	}
-	line, aborted := sh.readLineSig(fmt.Sprintf("choose up to %d (indices, comma-separated): ", n))
+	line, aborted := tui.RunPick(fmt.Sprintf("choose up to %d exercises", n), items)
 	if aborted {
 		return nil, errors.New("aborted")
 	}
@@ -217,12 +219,11 @@ func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
 	fmt.Println("\nenter start BPM before each exercise. After the set, the rest timer runs while you record end BPM and notes. Ctrl-C skips a timer or aborts a prompt.")
 
 	fmt.Println("\nwarm up before the first set:")
-	fmt.Println("press Enter when you are ready to start the warmup (Ctrl-C to skip it)")
-	if _, aborted := sh.readLineSig("start warmup when ready: "); aborted {
-		// Ctrl-C at the ready-gate skips warmup entirely, like countdown aborts
+	warmupRows := sessionRowsOf(order, -1, nil)
+	if _, aborted := tui.RunCountdown("Warmup -- open the hands, play lightly", sh.warmup, warmupRows); aborted {
 		return nil
 	}
-	sh.countdown(sh.warmup, "Warmup -- open the hands, play lightly")
+	sh.playAlarm()
 
 	return sh.runRounds(sess, 1, order, 0)
 }
@@ -241,6 +242,7 @@ func (sh *Shell) runRounds(sess model.Session, round int, cur []model.Exercise, 
 
 		quit := false
 		done := 0
+		endBPMs := map[int]int{}
 		for i := startSeq; i < len(cur); i++ {
 			ex := cur[i]
 			seq := i + 1
@@ -252,36 +254,39 @@ func (sh *Shell) runRounds(sess model.Session, round int, cur []model.Exercise, 
 			sh.showHistory(ex.ID)
 
 			suggest := sh.lastEndBPM(ex.ID)
-			startBPM, aborted := sh.promptBPM("start BPM", suggest)
-			if aborted {
+			tuiRows := sessionRowsOf(cur, i, endBPMs)
+
+			sm := tui.RunSession(tui.SessionRequest{
+				Label:     label,
+				Total:     durationOf(cfg.DurationSec),
+				Rows:      tuiRows,
+				StartBPM:  suggest,
+				NotesSeed: sh.lastNotes(),
+				Alarm:     sh.playAlarm,
+			})
+			if sm.Aborted {
 				quit = true
 				break
 			}
+			startBPM := sm.StartBPM
+			endBPM := sm.EndBPM
+			endBPMs[i] = endBPM
+			notes := sm.Notes
+			sh.retainNotes(notes)
 
 			startedAt := util.NowRFC()
-			fmt.Print("press Enter when you are ready to start the set (keys here are ignored/Ctrl-C skips): ")
-			flushStdio()
-			if _, aborted := sh.readLineSig("begin Doing countdown: "); aborted {
-				quit = true
-				break
+			if !sm.StartedAt.IsZero() {
+				startedAt = sm.StartedAt.UTC().Format(time.RFC3339)
 			}
-			sh.countdown(durationOf(cfg.DurationSec), "Doing: "+label)
-			finishedAt := util.NowRFC()
-
-			rest := sh.startRest(label, durationOf(cfg.RestSec))
-			opt := promptOpts{status: rest.statusText}
-			endBPM, aborted := sh.promptBPM("end BPM", startBPM, opt)
-			notes := ""
-			if !aborted {
-				notes, aborted = sh.readPrompt("notes: ", promptOpts{status: rest.statusText, history: &sh.noteHistory})
+			finishedAt := sm.FinishedAt.UTC().Format(time.RFC3339)
+			last := seq == len(cur)
+			if !last {
+				if _, aborted := tui.RunCountdown("Rest -- "+label, durationOf(cfg.RestSec), tuiRows); aborted {
+					quit = true
+					break
+				}
+				sh.playAlarm()
 			}
-			if aborted {
-				rest.signal()
-				quit = true
-				break
-			}
-			sh.retainNotes(notes)
-			sh.waitRest(rest)
 
 			entry := model.Entry{
 				ExerciseID: ex.ID,
@@ -308,15 +313,20 @@ func (sh *Shell) runRounds(sess model.Session, round int, cur []model.Exercise, 
 			return sh.pauseOrEnd(sess, round, cur, done)
 		}
 
-		line, aborted := sh.readLineSig("\nstart another round? [Y/n]: ")
+		allRows := sessionRowsOf(cur, -1, endBPMs)
+		v, aborted := tui.RunY("start another round?", allRows)
 		if aborted {
 			return sh.pauseOrEnd(sess, round, cur, len(cur))
 		}
-		if strings.EqualFold(line, "n") || strings.EqualFold(line, "no") {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v == "n" || v == "no" {
 			break
 		}
 		cur = api.ScrambleRotation(cur)
-		sh.countdown(durationOf(cfg.BreakSec), "Break -- order scrambled, next round ready")
+		if _, aborted := tui.RunCountdown("Break -- order scrambled, next round ready", durationOf(cfg.BreakSec), allRows); aborted {
+			return sh.pauseOrEnd(sess, round, cur, len(cur))
+		}
+		sh.playAlarm()
 		round++
 		startSeq = 0
 	}
@@ -335,8 +345,11 @@ func (sh *Shell) pauseOrEnd(sess model.Session, round int, cur []model.Exercise,
 		fmt.Println("\nsession discarded -- nothing was recorded")
 		return nil
 	}
-	line, aborted := sh.readLineSig("\npause this session to resume later? [Y/n]: ")
-	if !aborted && (strings.EqualFold(line, "n") || strings.EqualFold(line, "no")) {
+	v, aborted := tui.RunY("pause this session to resume later?")
+	if aborted {
+		return sh.finishSession(sess)
+	}
+	if v == "n" || v == "no" {
 		return sh.finishSession(sess)
 	}
 	if err := sh.api.SetResumePoint(sess.ID, round, idsOf(cur), completed); err != nil {
@@ -373,8 +386,8 @@ func (sh *Shell) finishSession(sess model.Session) error {
 	fmt.Printf("\nsession %s finished -- %d rounds, %d exercises done, %s total\n",
 		sess.ID, model.MaxRound(sess.Entries), len(sess.Entries), util.FormatDuration(total))
 
-	line, aborted := sh.readLineSig("open this session in the browser for review? [y/N]: ")
-	if !aborted && (strings.EqualFold(line, "y") || strings.EqualFold(line, "yes")) {
+	v, aborted := tui.RunYN("open this session in the browser for review?")
+	if !aborted && (v == "y" || v == "yes") {
 		fmt.Println("opening web UI\u2026")
 		if err := sh.openSessionInBrowser(sess.ID); err != nil {
 			fmt.Println("warning: could not open the web UI:", err)
@@ -389,6 +402,27 @@ func idsOf(exs []model.Exercise) []string {
 		ids = append(ids, ex.ID)
 	}
 	return ids
+}
+
+// sessionRowsOf builds the k9s-style side-table rows for a round. doing is the
+// index of the current exercise (-1 = none, all pending/done) and endBPMs maps
+// a finished exercise's index to its recorded end BPM so done rows can show it.
+func sessionRowsOf(cur []model.Exercise, doing int, endBPMs map[int]int) []tui.SessionRow {
+	rows := make([]tui.SessionRow, 0, len(cur))
+	for j, exj := range cur {
+		st := "pending"
+		if j == doing {
+			st = "doing"
+		} else if j < doing {
+			st = "done"
+		}
+		tj := ""
+		if exj.Topic != "" {
+			tj = exj.Topic
+		}
+		rows = append(rows, tui.SessionRow{Seq: j + 1, Name: exj.Name, Topic: tj, Status: st, BPM: endBPMs[j]})
+	}
+	return rows
 }
 
 func durationOf(sec int) time.Duration {

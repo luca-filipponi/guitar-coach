@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/luca-filipponi/guitar-coach/internal/model"
+	"github.com/luca-filipponi/guitar-coach/internal/tui"
 )
 
 func (sh *Shell) newEditCmd() *cobra.Command {
@@ -51,33 +51,25 @@ Use --start and --end to set values non-interactively.`,
 				return errors.New("BPM values cannot be negative")
 			}
 			if !startSet && !endSet {
-				line, aborted := sh.readLineSig("new start BPM (empty to keep): ")
-				if aborted {
-					return errors.New("aborted")
-				}
-				if line != "" {
-					v, err := strconv.Atoi(strings.TrimSpace(line))
-					if err != nil || v < 0 {
-						return fmt.Errorf("invalid start BPM %q", line)
-					}
-					startP, startSet = v, true
-				}
-				line, aborted = sh.readLineSig("new end BPM (empty to keep): ")
-				if aborted {
-					return errors.New("aborted")
-				}
-				if line != "" {
-					v, err := strconv.Atoi(strings.TrimSpace(line))
-					if err != nil || v < 0 {
-						return fmt.Errorf("invalid end BPM %q", line)
-					}
-					endP, endSet = v, true
-				}
-				if !startSet && !endSet {
-					fmt.Println("nothing changed")
-					return nil
-				}
+			sp, aborted := tui.RunBPM("new start BPM (Enter keeps current)", e.StartBPM)
+			if aborted {
+				return errors.New("aborted")
 			}
+			if sp != e.StartBPM {
+				startP, startSet = sp, true
+			}
+			ep, aborted := tui.RunBPM("new end BPM (Enter keeps current)", e.EndBPM)
+			if aborted {
+				return errors.New("aborted")
+			}
+			if ep != e.EndBPM {
+				endP, endSet = ep, true
+			}
+			if !startSet && !endSet {
+				fmt.Println("nothing changed")
+				return nil
+			}
+		}
 
 			updated, err := sh.api.UpdateSessionEntry(sess.ID, idx, func(en *model.Entry) {
 				if startSet {
