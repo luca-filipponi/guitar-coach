@@ -51,25 +51,25 @@ Use --start and --end to set values non-interactively.`,
 				return errors.New("BPM values cannot be negative")
 			}
 			if !startSet && !endSet {
-			sp, aborted := tui.RunBPM("new start BPM (Enter keeps current)", e.StartBPM)
-			if aborted {
-				return errors.New("aborted")
+				sp, aborted := tui.RunBPM("new start BPM (Enter keeps current)", e.StartBPM)
+				if aborted {
+					return errors.New("aborted")
+				}
+				if sp != e.StartBPM {
+					startP, startSet = sp, true
+				}
+				ep, aborted := tui.RunBPM("new end BPM (Enter keeps current)", e.EndBPM)
+				if aborted {
+					return errors.New("aborted")
+				}
+				if ep != e.EndBPM {
+					endP, endSet = ep, true
+				}
+				if !startSet && !endSet {
+					fmt.Println("nothing changed")
+					return nil
+				}
 			}
-			if sp != e.StartBPM {
-				startP, startSet = sp, true
-			}
-			ep, aborted := tui.RunBPM("new end BPM (Enter keeps current)", e.EndBPM)
-			if aborted {
-				return errors.New("aborted")
-			}
-			if ep != e.EndBPM {
-				endP, endSet = ep, true
-			}
-			if !startSet && !endSet {
-				fmt.Println("nothing changed")
-				return nil
-			}
-		}
 
 			updated, err := sh.api.UpdateSessionEntry(sess.ID, idx, func(en *model.Entry) {
 				if startSet {
