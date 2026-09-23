@@ -644,7 +644,8 @@ function renderUPlot(points, container, height) {
     legend: { show: true },
     cursor: { x: true, y: false, stroke: 'rgba(255,255,255,.35)', width: 1, dash: [4, 4] },
     axes: [
-      { stroke: '#8b857b', font: '11px system-ui', size: 26,
+      { stroke: '#8b857b', font: '11px system-ui', size: 34,
+        values: (u, ticks) => ticks.map(t => t == null ? '' : fmtDate(t)),
         grid: { stroke: 'rgba(217,123,86,.09)', width: 1, dash: [3, 5] },
         ticks: { stroke: '#403c44' } },
       { stroke: '#8b857b', font: '11px system-ui', size: 26, label: 'BPM',
@@ -658,8 +659,7 @@ function renderUPlot(points, container, height) {
         const p = points[idx];
         tip.innerHTML = '<b>' + fmtDate(data[0][idx]) + '</b> \u00B7 ' +
           (p.start_bpm > 0 ? p.start_bpm + ' \u2192 ' : '') +
-          (p.end_bpm > 0 ? p.end_bpm + ' bpm' : '\u2014') +
-          (p.notes ? '<br><span>' + escapeHtml(p.notes) + '</span>' : '');
+          (p.end_bpm > 0 ? p.end_bpm + ' bpm' : '\u2014');
         tip.style.display = 'block';
         const overRect = u.over.getBoundingClientRect();
         const baseRect = container.getBoundingClientRect();
@@ -676,8 +676,9 @@ function renderUPlot(points, container, height) {
     },
     series: [
       { label: 'date', value: (u, ts) => ts == null ? '-' : fmtDate(ts) },
-      { label: 'start bpm', stroke: palette.start, width: 1.5, spanGaps: true, dash: [2, 5],
+      { label: 'start bpm', stroke: palette.start, width: 1.5, spanGaps: true,
         fill: 'rgba(217,123,86,.06)',
+        points: { show: true, size: 4, stroke: palette.start, fill: '#1a1920' },
         value: (u, raw) => raw == null ? '-' : raw + ' bpm' },
       { label: 'end bpm', stroke: palette.end, width: 2.5, spanGaps: true,
         fill: 'rgba(232,153,106,.10)',

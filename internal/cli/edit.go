@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/luca-filipponi/guitar-coach/internal/model"
+	"github.com/luca-filipponi/guitar-coach/internal/tui"
 )
 
 func (sh *Shell) newEditCmd() *cobra.Command {
@@ -51,27 +51,19 @@ Use --start and --end to set values non-interactively.`,
 				return errors.New("BPM values cannot be negative")
 			}
 			if !startSet && !endSet {
-				line, aborted := sh.readLineSig("new start BPM (empty to keep): ")
+				sp, aborted := tui.RunBPM("new start BPM (Enter keeps current)", e.StartBPM)
 				if aborted {
 					return errors.New("aborted")
 				}
-				if line != "" {
-					v, err := strconv.Atoi(strings.TrimSpace(line))
-					if err != nil || v < 0 {
-						return fmt.Errorf("invalid start BPM %q", line)
-					}
-					startP, startSet = v, true
+				if sp != e.StartBPM {
+					startP, startSet = sp, true
 				}
-				line, aborted = sh.readLineSig("new end BPM (empty to keep): ")
+				ep, aborted := tui.RunBPM("new end BPM (Enter keeps current)", e.EndBPM)
 				if aborted {
 					return errors.New("aborted")
 				}
-				if line != "" {
-					v, err := strconv.Atoi(strings.TrimSpace(line))
-					if err != nil || v < 0 {
-						return fmt.Errorf("invalid end BPM %q", line)
-					}
-					endP, endSet = v, true
+				if ep != e.EndBPM {
+					endP, endSet = ep, true
 				}
 				if !startSet && !endSet {
 					fmt.Println("nothing changed")

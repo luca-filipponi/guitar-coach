@@ -74,6 +74,15 @@ func (sh *Shell) readLineSig(label string) (string, bool) {
 	return sh.readPrompt(label, promptOpts{})
 }
 
+// lastNotes returns the most recent submitted note, for pre-seeding the next
+// exercise's notes field.
+func (sh *Shell) lastNotes() string {
+	if len(sh.noteHistory) > 0 {
+		return sh.noteHistory[len(sh.noteHistory)-1]
+	}
+	return ""
+}
+
 // retainNotes records a submitted note so up/down-arrow can recall it.
 func (sh *Shell) retainNotes(note string) {
 	note = strings.TrimSpace(note)
