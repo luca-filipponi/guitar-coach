@@ -226,8 +226,6 @@ func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
 	defer flow.Close()
 
 	flow.Log("\nenter start BPM before each exercise. After the set, the rest timer runs while you record end BPM and notes. Ctrl-C skips a timer or aborts a prompt.")
-	flow.Log("\nwarm up before the first set:")
-
 	warmupPlan := planInfoOf(1, order, -1, nil, cfg)
 	if res := flow.Next(tui.PhaseRequest{Kind: tui.PhaseCountdown, Label: "Warmup -- open the hands, play lightly", Total: sh.warmup, Rows: warmupPlan.Rows, Plan: warmupPlan}); res.Aborted {
 		return nil
