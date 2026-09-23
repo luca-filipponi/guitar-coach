@@ -40,6 +40,7 @@ type promptModel struct {
 	current  string
 	items    []string
 	rows     []sessionRow
+	plan     *PlanInfo
 	left     time.Duration
 	total    time.Duration
 	done     bool
@@ -94,7 +95,7 @@ func (m promptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.done = true
 				m.last = &promptDoneMsg{promptResult{Value: m.current}}
 				return m, tea.Quit
-case promptY:
+			case promptY:
 				m.done = true
 				v := "y"
 				if !m.defY {
@@ -181,6 +182,9 @@ case promptY:
 func (m promptModel) View() string {
 	var b strings.Builder
 	b.WriteString(strings.ReplaceAll(GuitarArt, "\n", "\n  ") + "\n")
+	if m.plan != nil {
+		b.WriteString(planBox(m.plan))
+	}
 	switch m.kind {
 	case promptCountdown:
 		b.WriteString("  " + m.label + "\n")
@@ -209,7 +213,7 @@ func (m promptModel) View() string {
 			b.WriteString(m.current + cur + "\n")
 		}
 	}
-	if len(m.rows) > 0 {
+	if m.plan == nil && len(m.rows) > 0 {
 		b.WriteString("\n  exercises\n" + sideTable(m.rows))
 	}
 	return b.String()

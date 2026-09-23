@@ -45,11 +45,20 @@ func (sh *Shell) lastEndBPM(exID string) int {
 	return 0
 }
 
-func (sh *Shell) showHistory(exID string) {
+func (sh *Shell) lastNoteFor(exID string) string {
+	points := sh.api.ExerciseProgress(exID)
+	for i := len(points) - 1; i >= 0; i-- {
+		if points[i].Notes != "" {
+			return points[i].Notes
+		}
+	}
+	return ""
+}
+
+func (sh *Shell) historyLines(exID string) []string {
 	points := sh.api.ExerciseProgress(exID)
 	if len(points) == 0 {
-		fmt.Println("  first time -- no history yet")
-		return
+		return []string{"  first time -- no history yet"}
 	}
 
 	lastBPM, lastWhen := 0, ""
@@ -76,21 +85,21 @@ func (sh *Shell) showHistory(exID string) {
 	if lastNotes != "" {
 		line += fmt.Sprintf(" -- notes: %s", lastNotes)
 	}
-	fmt.Println(line)
 
 	from := len(points) - 3
 	if from < 0 {
 		from = 0
 	}
-	fmt.Println("  recent history:")
+	lines := []string{line, "  recent history:"}
 	for i := len(points) - 1; i >= from; i-- {
 		p := points[i]
 		bpm := fmt.Sprintf("%d -> %d", p.StartBPM, p.EndBPM)
 		if p.StartBPM == 0 && p.EndBPM == 0 {
 			bpm = "n/a"
 		}
-		fmt.Printf("    %s  %s  %s bpm  r%d  %s\n", formatPointTime(p.Date), p.SessionID, bpm, p.Round, p.Notes)
+		lines = append(lines, fmt.Sprintf("    %s  %s  %s bpm  r%d  %s", formatPointTime(p.Date), p.SessionID, bpm, p.Round, p.Notes))
 	}
+	return lines
 }
 
 // formatPointTime renders a progress point's timestamp as a local date+time,

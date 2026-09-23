@@ -9,6 +9,7 @@ import (
 
 	"github.com/luca-filipponi/guitar-coach/internal/api"
 	"github.com/luca-filipponi/guitar-coach/internal/model"
+	"github.com/luca-filipponi/guitar-coach/internal/tui"
 )
 
 func (sh *Shell) newResumeCmd() *cobra.Command {
@@ -42,8 +43,11 @@ func (sh *Shell) resumeSession(id string) error {
 		return err
 	}
 
-	fmt.Printf("\nresuming session %s at round %d\n", sess.ID, round)
-	return sh.runRounds(sess, round, cur, startSeq)
+	flow := tui.NewFlow()
+	flow.Run()
+	defer flow.Close()
+	flow.Log("resuming session %s at round %d", sess.ID, round)
+	return sh.runRounds(flow, sess, round, cur, startSeq)
 }
 
 // resumePosition decides where a session should pick up: from the persisted

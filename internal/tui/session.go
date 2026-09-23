@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -42,6 +43,7 @@ const (
 // only Ctrl-C skips recording.
 type sessionModel struct {
 	rows    []sessionRow
+	plan    *PlanInfo // always-on-top session plan box (nil standalone)
 	label   string
 	total   time.Duration
 	left    time.Duration
@@ -198,6 +200,9 @@ func (m sessionModel) acceptedBPM() int {
 func (m sessionModel) View() string {
 	var b strings.Builder
 	b.WriteString(strings.ReplaceAll(GuitarArt, "\n", "\n  ") + "\n")
+	if m.plan != nil {
+		b.WriteString(planBox(m.plan))
+	}
 	switch m.phase {
 	case phaseStartBPM:
 		b.WriteString("  " + m.bpmLabel() + "\n")
@@ -208,8 +213,10 @@ func (m sessionModel) View() string {
 		b.WriteString("  Doing -- " + durText(m.left) + "\n")
 		b.WriteString("  " + progressBar(m.total-m.left, m.total) + " " + durText(m.left) + "\n")
 		b.WriteString("  start BPM: " + itoa(m.startBPM) + "\n")
-		b.WriteString("\n  exercises\n")
-		b.WriteString(sideTable(m.rows))
+		if m.plan == nil {
+			b.WriteString("\n  exercises\n")
+			b.WriteString(sideTable(m.rows))
+		}
 		b.WriteString("\n  Esc to finish early (always recorded) | Ctrl-C quit\n")
 	case phaseEndBPM:
 		b.WriteString("  " + m.bpmLabel() + "\n")
@@ -220,6 +227,10 @@ func (m sessionModel) View() string {
 		b.WriteString("  " + m.bpmLabel() + "\n")
 		b.WriteString("  notes: " + m.notes + cursor(m.blink) + "\n")
 		b.WriteString("  Enter to finish (always recorded) | Esc to skip notes | Ctrl-C quit\n")
+	}
+	if m.plan == nil && len(m.rows) > 0 {
+		b.WriteString("\n  exercises\n")
+		b.WriteString(sideTable(m.rows))
 	}
 	return b.String()
 }
@@ -280,7 +291,64 @@ func sideTable(rows []sessionRow) string {
 	return b.String()
 }
 
-// durText renders a duration as m:ss, falling back to seconds below a minute.
+// planBox renders the always-on-top session plan as a boxed, colored panel
+// pinned under the guitar: the title carries the round, each exercise line is
+// marked with the same status glyphs as the side table (green ▶ on the current
+// exercise, ✓ on done ones), and the footer rides the last line.
+func planBox(p *PlanInfo) string {
+	if p == nil {
+		return ""
+	}
+	const pad = 1
+	type planLine struct {
+		text string
+		sty  func(string) string
+	}
+	var lines []planLine
+	width := 0
+	add := func(s string, sty func(string) string) {
+		lines = append(lines, planLine{text: s, sty: sty})
+		if w := utf8.RuneCountInString(s); w > width {
+			width = w
+		}
+	}
+
+	add("  session plan  \u2014  round "+itoa(p.Round)+"  ", func(s string) string { return bold(cyan(s)) })
+	for _, r := range p.Rows {
+		name := r.Name
+		if r.Topic != "" {
+			name += " (" + r.Topic + ")"
+		}
+		when := fmt.Sprintf("%d. %s", r.Seq, name)
+		when += "  \u2014  " + r.Detail
+		switch r.Status {
+		case "doing":
+			add("\u25b6  "+when, green)
+		case "done":
+			add("\u2713  "+when, dim)
+		default:
+			add("   "+when, nil)
+		}
+	}
+	if p.Footer != "" {
+		add(" "+p.Footer+" ", func(s string) string { return dim(s) })
+	}
+
+	var b strings.Builder
+	b.WriteString("  \u250c" + strings.Repeat("\u2500", width+2*pad) + "\u2510\n")
+	for _, l := range lines {
+		text := l.text
+		if w := utf8.RuneCountInString(text); w < width {
+			text += strings.Repeat(" ", width-w)
+		}
+		if l.sty != nil {
+			text = l.sty(text)
+		}
+		b.WriteString("  \u2502 " + text + " \u2502\n")
+	}
+	b.WriteString("  \u2514" + strings.Repeat("\u2500", width+2*pad) + "\u2518\n")
+	return b.String()
+}
 func durText(d time.Duration) string {
 	t := int(d / time.Second)
 	if t < 60 {
@@ -293,6 +361,10 @@ func durText(d time.Duration) string {
 func green(s string) string {
 	return "\x1b[32m" + s + "\x1b[0m"
 }
+
+func cyan(s string) string { return "[36m" + s + "[0m" }
+func bold(s string) string { return "[1m" + s + "[0m" }
+func dim(s string) string  { return "[2m" + s + "[0m" }
 
 func zero2(n int) string {
 	if n < 0 {
@@ -351,6 +423,7 @@ type SessionRow struct {
 	Topic  string
 	Status string // pending | doing | done
 	BPM    int    // end BPM once done
+	Detail string // per-exercise plan text (e.g. "1:00, then 30s rest")
 }
 
 // SessionResult is what the window hands back. Aborted means Ctrl-C quit and
