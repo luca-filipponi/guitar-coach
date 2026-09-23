@@ -163,15 +163,22 @@ func (sh *Shell) lastRotation() []model.Exercise {
 }
 
 func (sh *Shell) selectExercises(pool []model.Exercise, n int) ([]model.Exercise, error) {
+	var warmups []model.Exercise
 	items := make([]string, 0, len(pool))
+	poolNoWarmup := make([]model.Exercise, 0, len(pool))
 	for _, ex := range pool {
+		if ex.Topic == "warmup" {
+			warmups = append(warmups, ex)
+			continue
+		}
+		poolNoWarmup = append(poolNoWarmup, ex)
 		name := ex.Name
 		if ex.Topic != "" {
 			name = fmt.Sprintf("%s (%s)", ex.Name, ex.Topic)
 		}
 		items = append(items, name)
 	}
-	line, aborted := tui.RunPick(fmt.Sprintf("choose up to %d exercises", n), items)
+	line, aborted := tui.RunPickCheck("pick the next rotation -- checked rows go in", items, nil)
 	if aborted {
 		return nil, errors.New("aborted")
 	}
@@ -183,14 +190,14 @@ func (sh *Shell) selectExercises(pool []model.Exercise, n int) ([]model.Exercise
 			continue
 		}
 		idx, err := strconv.Atoi(tok)
-		if err != nil || idx < 1 || idx > len(pool) {
+		if err != nil || idx < 1 || idx > len(items) {
 			return nil, fmt.Errorf("invalid index %q", tok)
 		}
 		if seen[idx] {
 			continue
 		}
 		seen[idx] = true
-		chosen = append(chosen, pool[idx-1])
+		chosen = append(chosen, poolNoWarmup[idx-1])
 		if len(chosen) >= n {
 			break
 		}
@@ -198,7 +205,9 @@ func (sh *Shell) selectExercises(pool []model.Exercise, n int) ([]model.Exercise
 	if len(chosen) == 0 {
 		return nil, errors.New("no exercises chosen")
 	}
-	return chosen, nil
+	// Warmup is always seeded first; the checklist itself never offers it as a
+	// toggleable row.
+	return append(warmups, chosen...), nil
 }
 
 func (sh *Shell) runSession(cfg model.Config, order []model.Exercise) error {
