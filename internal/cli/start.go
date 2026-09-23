@@ -132,6 +132,13 @@ func (sh *Shell) chooseExercises(pool []model.Exercise, n int, pick string, sel 
 				fmt.Printf("using previous rotation\n")
 				return last, nil
 			}
+			if aborted {
+				fmt.Printf("starting a fresh rotation\n")
+				return api.BuildPlan(pool, n), nil
+			}
+			// Declined: hand-pick the next rotation so you can choose which
+			// exercises (and how many per topic) make it in.
+			return sh.selectExercises(pool, n)
 		}
 	}
 	return api.BuildPlan(pool, n), nil
